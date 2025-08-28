@@ -1,0 +1,53 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper functions for authentication and authorization
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    
+    function isAdmin() { 
+      return request.auth.token.role == 'admin'; 
+    }
+    
+    function getUserClientId() {
+      return request.auth.token.clientId;
+    }
+
+    // Blade QR code images - readable by all authenticated users, writable by admins
+    match /qr-codes/{bladeId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Blade photos - readable by all authenticated users, writable by authenticated users
+    match /blade-photos/{bladeId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // WZPZ PDF documents - readable by all authenticated users, writable by authenticated users
+    match /wzpz-docs/{docId}.pdf {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // WZPZ signature images - readable by all authenticated users, writable by authenticated users
+    match /wzpz-signatures/{docId}/{signatureType}.png {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // User profile images - users can read/write their own, admins can read all
+    match /user-avatars/{userId}/{fileName} {
+      allow read: if isSignedIn() && (isAdmin() || request.auth.uid == userId);
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Client logos - readable by all authenticated users, writable by admins and client users
+    match /client-logos/{clientId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || (isSignedIn() && getUserClientId() == clientId);
+    }
+  }
+}

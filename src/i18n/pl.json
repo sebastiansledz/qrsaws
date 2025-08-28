@@ -1,0 +1,105 @@
+{
+  "nav": {
+    "admin": "Panel administratora",
+    "client": "Moje narzędzia",
+    "scan": "Skanuj",
+    "logout": "Wyloguj"
+  },
+  "auth": {
+    "signin": "Zaloguj się",
+    "signup": "Zarejestruj",
+    "email": "Email",
+    "password": "Hasło",
+    "forgot": "Zapomniałeś hasła?"
+  },
+  "scan": {
+    "title": "Skanuj kod QR",
+    "decoded": "Odczytano",
+    "continue": "Kontynuuj",
+    "back": "Wróć",
+    "tip": "Wskazówka: jeśli kamera jest niedostępna, zezwól przeglądarce na dostęp do aparatu lub uruchom aplikację przez HTTPS."
+  },
+  "blade": {
+    "bladeId": "ID Piły",
+    "details": "Szczegóły piły",
+    "downloadPng": "Pobierz PNG",
+    "downloadSvg": "Pobierz SVG",
+    "printLabel": "Drukuj etykietę",
+    "client": "Klient",
+    "specs": {
+    "machine": "Maszyna",
+    "notes": "Uwagi",
+    "opCode": "Operacja",
+    "stateCode": "Status piły",
+    "addBlade": "Dodaj piłę",
+    "editBlade": "Edytuj piłę",
+    "width": "Szerokość (mm)",
+    "thickness": "Grubość (mm)",
+    "length": "Długość (mm)",
+    "pitch": "Podziałka",
+    "tooth": "Uzębienie",
+    "system": "System",
+    "sawType": "Typ pilarki"
+    },
+    "status": {
+      "c0": "Bez uwag",
+      "c1": "Rysuje",
+      "c2": "Faluje",
+      "c3": "Chodzi po kole",
+      "c4": "Pęknięta",
+      "c5": "Brak zęba",
+      "c6": "Oklejona",
+      "c7": "Wada spawu",
+      "c8": "Metal, kamień",
+      "c9": "Rysuje na 1 kłodzie",
+      "c10": "Schodzi z koła",
+      "c11": "Deformacja",
+      "c12": "Kolizja na złom",
+      "c13": "Do regeneracji",
+      "c14": "Do skrócenia"
+    }
+  },
+  "wzpz": {
+    "title": "Dokument WZ/PZ",
+    "type": "Typ",
+    "humanId": "Numer dokumentu",
+    "download": "Pobierz PDF"
+  },
+  "forms": {
+    "required": "To pole jest wymagane",
+    "invalidEmail": "Nieprawidłowy adres e‑mail",
+    "nip": "NIP",
+    "code2": "Kod klienta (2 litery)",
+    "client": "Klient",
+    "machine": "Maszyna",
+    "notes": "Uwagi",
+    "opCode": "Operacja",
+    "stateCode": "Status piły",
+    "addBlade": "Dodaj piłę",
+    "editBlade": "Edytuj piłę",
+    "width": "Szerokość (mm)",
+    "thickness": "Grubość (mm)",
+    "length": "Długość (mm)",
+    "pitch": "Podziałka",
+    "tooth": "Uzębienie",
+    "system": "System",
+    "sawType": "Typ pilarki",
+    "save": "Zapisz",
+    "cancel": "Anuluj"
+  },
+  "ops": {
+    "MD": "Magazyn Dostawcy",
+    "PZ": "Wydałem piłę",
+    "SR": "Przyjąłem od klienta",
+    "ST1": "Założyłem na trak",
+    "ST2": "Zdjąłem z traka",
+    "WZ": "Przyjąłem piłę",
+    "MAGAZYN": "Przyjęcie na magazyn iPM"
+  },
+  "users": {
+    "loadError": "Nie udało się załadować danych użytkowników."
+  },
+  "clients": {
+    "loadError": "Nie udało się załadować danych klientów."
+  }
+}

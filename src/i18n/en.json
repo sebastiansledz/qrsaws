@@ -1,0 +1,106 @@
+{
+  "nav": {
+    "admin": "Admin Panel",
+    "client": "My Tools",
+    "scan": "Scan",
+    "logout": "Log out"
+  },
+  "auth": {
+    "signin": "Sign in",
+    "signup": "Sign up",
+    "email": "Email",
+    "password": "Password",
+    "forgot": "Forgot password?"
+  },
+  "scan": {
+    "title": "Scan QR Code",
+    "decoded": "Decoded",
+    "continue": "Continue",
+    "back": "Back",
+    "tip": "Tip: if the camera is unavailable, allow camera access in your browser or run the app over HTTPS."
+  },
+  "blade": {
+    "bladeId": "Bandsaw ID",
+    "details": "Blade Details",
+    "downloadPng": "Download PNG",
+    "downloadSvg": "Download SVG",
+    "printLabel": "Print Label",
+    "statusLabel": "State",
+    "client": "Client",
+    "specs": {
+    "machine": "Machine",
+    "notes": "Notes",
+    "opCode": "Operation",
+    "stateCode": "Blade status",
+    "addBlade": "Add blade",
+    "editBlade": "Edit blade",
+    "width": "Width (mm)",
+    "thickness": "Thickness (mm)",
+    "length": "Length (mm)",
+    "pitch": "Pitch",
+    "tooth": "Tooth profile",
+    "system": "System",
+    "sawType": "Saw type"
+    },
+    "status": {
+      "c0": "OK",
+      "c1": "Scratches",
+      "c2": "Waves",
+      "c3": "Walks on wheel",
+      "c4": "Cracked",
+      "c5": "Missing tooth",
+      "c6": "Gummed",
+      "c7": "Weld defect",
+      "c8": "Metal/stone hit",
+      "c9": "Scratches on first log",
+      "c10": "Falls off wheel",
+      "c11": "Deformation",
+      "c12": "Collision - scrap",
+      "c13": "To regenerate",
+      "c14": "To shorten"
+    }
+  },
+  "wzpz": {
+    "title": "WZ/PZ Document",
+    "type": "Type",
+    "humanId": "Document Number",
+    "download": "Download PDF"
+  },
+  "forms": {
+    "required": "This field is required",
+    "invalidEmail": "Invalid email",
+    "nip": "NIP (VAT)",
+    "code2": "Client code (2 letters)",
+    "client": "Client",
+    "machine": "Machine",
+    "notes": "Notes",
+    "opCode": "Operation",
+    "stateCode": "Blade status",
+    "addBlade": "Add blade",
+    "editBlade": "Edit blade",
+    "width": "Width (mm)",
+    "thickness": "Thickness (mm)",
+    "length": "Length (mm)",
+    "pitch": "Pitch",
+    "tooth": "Tooth profile",
+    "system": "System",
+    "sawType": "Saw type",
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+  "ops": {
+    "MD": "Supplier Warehouse",
+    "PZ": "Issued blade",
+    "SR": "Received from client",
+    "ST1": "Mounted on track",
+    "ST2": "Removed from track",
+    "WZ": "Received blade",
+    "MAGAZYN": "iPM Warehouse intake"
+  },
+  "users": { 
+    "loadError": "Failed to load users." 
+  },
+  "clients": { 
+    "loadError": "Failed to load clients." 
+  }
+}

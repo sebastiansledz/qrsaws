@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthed() { return request.auth != null }
+    function role() { return request.auth.token.role }
+    function isAdmin() { return isAuthed() && role() == 'admin' }
+    function isClient() { return isAuthed() && role() == 'client' }
+    function isWorker() { return isAuthed() && role() == 'worker' }
+    function myClientId() { return request.auth.token.clientId }
+
+    // users mirror (non-authoritative)
+    match /users/{uid} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() || (isAuthed() && request.auth.uid == uid && !('role' in request.resource.data));
+    }
+
+    // clients
+    match /clients/{clientId} {
+      allow read: if isAdmin() || (isClient() && myClientId() == clientId);
+      allow create, update, delete: if isAdmin();
+
+      // machines of a client
+      match /machines/{machineId} {
+        allow read: if isAdmin() || (isClient() && myClientId() == clientId);
+        allow create, update, delete: if isAdmin();
+      }
+    }
+
+    // blades
+    match /blades/{bladeId} {
+      allow read: if isAdmin()
+                 || (isClient() && resource.data.clientId == myClientId())
+                 || (isWorker() && resource.data.clientId == myClientId());
+      allow create, update, delete: if isAdmin();
+    }
+
+    // movements
+    match /movements/{moveId} {
+      allow read: if isAdmin()
+                 || (isClient() && resource.data.clientId == myClientId())
+                 || (isWorker() && resource.data.clientId == myClientId());
+      // create allowed for admin/worker; for client only for their own clientId
+      allow create: if isAdmin()
+                 || isWorker()
+                 || (isClient() && request.resource.data.clientId == myClientId());
+      allow update, delete: if isAdmin();
+    }
+
+    // WZ/PZ records
+    match /wzpz/{docId} {
+      allow read: if isAdmin()
+                 || (isClient() && resource.data.clientId == myClientId());
+      allow create, update, delete: if isAdmin();
+    }
+
+    // counters
+    match /counters/{clientId}/months/{yyyymm} {
+      allow read: if isAdmin() || (isClient() && myClientId() == clientId);
+      allow write: if isAdmin(); // updated by functions
+    }
+  }
+}
