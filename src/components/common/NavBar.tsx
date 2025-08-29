@@ -4,6 +4,7 @@ import { Menu, User, LogOut, Settings } from 'lucide-react';
 import { Button } from '../ui/button';
 import useAuth from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
+import { useNavigate } from 'react-router-dom';
 
 interface NavBarProps {
   onMenuClick?: () => void;
@@ -11,9 +12,17 @@ interface NavBarProps {
 
 export const NavBar: React.FC<NavBarProps> = ({ onMenuClick }) => {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+      // Immediately route to sign-in; ProtectedRoute will keep it honest
+      navigate('/auth/signin', { replace: true });
+    } catch (e) {
+      // optional: toast error
+      console.error('Sign out failed', e);
+    }
   };
 
   return (
