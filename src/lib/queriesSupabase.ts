@@ -122,12 +122,24 @@ export async function createBlade(row: {
 export async function createMovement(payload: {
   blade_id: string;
   type: 'scan_in'|'scan_out'|'service_in'|'service_out'|'ship_in'|'ship_out';
+  op_code: 'MD'|'PZ'|'SR'|'ST1'|'ST2'|'WZ'|'MAGAZYN';
+  client_id?: string | null;
+  machine_id?: string | null;
+  state_code?: string | null;      // 'c0'..'c14'
+  hours_worked?: number | null;    // hours
+  doc_ref?: string | null;         // e.g. 'WZ/JK/2025/08/007'
   service_ops?: string[];
   note?: string;
 }) {
-  const { data, error } = await supabase.from('movements').insert(payload).select().single();
-  return assertNoError(data, error);
+  const { data, error } = await supabase
+    .from('movements')
+    .insert(payload)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
 }
+
 
 export async function listServiceOps() {
   const { data, error } = await supabase.from('service_ops').select('*').order('id');
