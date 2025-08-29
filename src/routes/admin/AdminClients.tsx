@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { useQuery } from '@tanstack/react-query';
 import { Plus, Edit, Settings, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -17,17 +18,22 @@ import { clientSchema, machineSchema, ClientFormData, MachineFormData } from '..
 import { createFormConfig } from '../../lib/forms';
 import { useNotify } from '../../lib/notify';
 
+function useClients() {
+  return useQuery({
+    queryKey: ['clients'],
+    queryFn: async () => {
+      const data = await listClientsLite();
+      return data;
+    },
+  });
+}
+
 export const AdminClients: React.FC = () => {
-  const { isAdmin, loading } = useAuth();
+  const { isAdmin, loading: authLoading } = useAuth();
   const { success, error: notifyError } = useNotify();
-  const [rows, setRows] = useState<Array<{
-    id: string; name: string; code2: string | null;
-    email: string | null; phone: string | null;
-    nip: string | null; address: string | null;
-  }>>([]);
+  const { data: rows = [], isLoading: dataLoading, refetch } = useClients();
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [machines, setMachines] = useState<any[]>([]);
-  const [dataLoading, setDataLoading] = useState(true);
   const [showClientDialog, setShowClientDialog] = useState(false);
   const [showMachinesDialog, setShowMachinesDialog] = useState(false);
   const [showMachineForm, setShowMachineForm] = useState(false);
@@ -37,24 +43,7 @@ export const AdminClients: React.FC = () => {
   const clientForm = useForm<ClientFormData>(createFormConfig(clientSchema));
   const machineForm = useForm<MachineFormData>(createFormConfig(machineSchema));
 
-  useEffect(() => {
-    if (loading) return;
-    if (!isAdmin) return;
-    
-    (async () => {
-      try {
-        const clientsData = await listClientsLite();
-        setRows(clientsData);
-      } catch (error) {
-        console.error('Error loading clients:', error);
-        setLocalError('Nie udało się załadować listy klientów.');
-      } finally {
-        setDataLoading(false);
-      }
-    })();
-  }, [loading, isAdmin]);
-
-  if (loading) {
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
@@ -131,11 +120,11 @@ export const AdminClients: React.FC = () => {
 
       if (editingClient) {
         const updated = await updateClientSB(editingClient.id, payload);
-        setRows((prev) => prev.map(r => r.id === updated.id ? updated : r));
+        refetch(); // Refresh data via React Query
         success('Zapisano zmiany klienta.');
       } else {
         const created = await createClientSB(payload);
-        setRows((prev) => [created, ...prev]);
+        refetch(); // Refresh data via React Query
         success('Dodano klienta.');
       }
 

@@ -71,20 +71,28 @@ export function useAuth() {
 
   useEffect(() => {
     let cancelled = false;
+    let t: any;
 
-    // Safety timeout: never hang indefinitely
-    const t = setTimeout(() => {
-      if (!cancelled) setLoading(false);
-    }, 8000);
-
-    // initial load
+    // Initial load
+    setLoading(true);
     loadUserAndProfile();
 
-    // live auth changes
+    // Subscribe to auth changes (non-disruptive)
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, _session) => {
-      // Reload role/profile when token/user changes
-      setLoading(true);
-      loadUserAndProfile();
+      // Do NOT setLoading(true) here — keep UI steady
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setProfile(null);
+        setIsAdmin(false);
+        return;
+      }
+
+      if (event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
+        setUser(session?.user ?? null);
+        // Light refresh of profile/admin flag (no global loading)
+        clearTimeout(t);
+        t = setTimeout(() => loadUserAndProfile(), 100);
+      }
     });
 
     return () => {

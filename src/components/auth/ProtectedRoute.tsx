@@ -1,11 +1,13 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import useAuth from '../../hooks/useAuth';
+import { useRole } from '../../lib/useRole';
 
 export default function ProtectedRoute() {
-  const { user, isAdmin, loading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const { role, loading: roleLoading } = useRole();
   const location = useLocation();
 
-  if (loading) {
+  if (authLoading || roleLoading) {
     return (
       <div className="flex h-screen items-center justify-center text-muted-foreground">
         Ładowanie…
@@ -20,8 +22,8 @@ export default function ProtectedRoute() {
   const atAdmin = location.pathname.startsWith('/admin');
   const atApp = location.pathname.startsWith('/app');
 
-  if (atAdmin && !isAdmin) return <Navigate to="/app" replace />;
-  if (atApp && isAdmin) return <Navigate to="/admin" replace />;
+  if (atAdmin && role !== 'admin') return <Navigate to="/app" replace />;
+  if (atApp && role === 'admin') return <Navigate to="/admin" replace />;
 
   return <Outlet />;
 }
