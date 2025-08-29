@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useForm } from 'react-hook-form';
-import { Package, ArrowRight, Save, Loader2, FileText } from 'lucide-react';
+import { Package, Save, Loader2, FileText } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -14,74 +14,106 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { SERVICE_OPS, type ServiceOpKey, BLADE_STATUS_CODES } from '../../constants/blade';
 import { useNotify } from '../../lib/notify';
 import { supabase } from '../../lib/supabase';
+import { useTranslation } from 'react-i18next';
 
+// ----- form schema
 const formSchema = z.object({
   opCode: z.enum(['MD','PZ','SR','ST1','ST2','WZ','MAGAZYN']),
   stateCode: z.enum(['c0','c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12','c13','c14']).optional(),
   machineId: z.string().optional(),
   notes: z.string().max(1000).optional(),
   serviceOps: z.array(z.enum(Object.keys(SERVICE_OPS) as [ServiceOpKey, ...ServiceOpKey[]])).optional(),
-  // New fields
-  clientId: z.string().optional(),              // required for WZ/PZ (recipient/sender)
-  docChoice: z.string().optional(),             // 'NEW' or existing doc.id
-  hoursWorked: z.coerce.number().optional(),    // for ST2 (fallback 16h)
+  clientId: z.string().optional(),           // WZ/PZ
+  docChoice: z.string().optional(),          // 'NEW' | existing doc.id
+  hoursWorked: z.coerce.number().optional(), // ST2
 });
-
 type FormValues = z.infer<typeof formSchema>;
 
 type WZPZDoc = {
   id: string;
-  type: 'WZ' | 'PZ';
+  type: 'WZ'|'PZ';
   client_id: string;
   human_id: string;
-  status: 'open' | 'closed';
+  status: 'open'|'closed';
   year: number; month: number; seq: number;
 };
-
 type ClientLite = { id: string; name: string; code2: string };
 type MachineLite = { id: string; name: string };
 
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
 export const ScanAction: React.FC = () => {
+  const { t } = useTranslation();
   const { bladeId = '' } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { success, error } = useNotify();
 
-  const [blade, setBlade] = useState<any>(null);
+  const [blade, setBlade] = useState<{
+    id: string;           // UUID in DB
+    code: string;         // human code like BLD01
+    client_id: string | null;
+    statusCode?: string | null;
+    szerokosc?: number; grubosc?: number; dlugosc?: number;
+    machineId?: string | null;
+  } | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // WZ/PZ helpers
   const [clients, setClients] = useState<ClientLite[]>([]);
   const [openDocs, setOpenDocs] = useState<WZPZDoc[]>([]);
   const [machines, setMachines] = useState<MachineLite[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [loadingMachines, setLoadingMachines] = useState(false);
 
-  // Load blade once (mock stays for now)
+  // ----- resolve blade (code or UUID) -> DB row
   useEffect(() => {
     let mounted = true;
-    async function loadBlade() {
+    (async () => {
       try {
-        if (bladeId) {
-          const mockBlade = {
-            bladeId: decodeURIComponent(bladeId),
-            clientId: '00000000-0000-0000-0000-CLIENTID', // replace when hooking real query
-            szerokosc: 25,
-            grubosc: 0.8,
-            dlugosc: 2500,
-            statusCode: 'c0',
+        if (!bladeId) return;
+
+        let row: any = null;
+        if (isUuid(bladeId)) {
+          const { data, error: err } = await supabase
+            .from('blades')
+            .select('id, code, client_id')
+            .eq('id', bladeId)
+            .maybeSingle();
+          if (err) throw err;
+          row = data;
+        } else {
+          const { data, error: err } = await supabase
+            .from('blades')
+            .select('id, code, client_id')
+            .eq('code', decodeURIComponent(bladeId))
+            .maybeSingle();
+          if (err) throw err;
+          row = data;
+        }
+
+        if (!row) throw new Error(`Blade not found: ${bladeId}`);
+
+        if (mounted) {
+          setBlade({
+            id: row.id,
+            code: row.code ?? decodeURIComponent(bladeId),
+            client_id: row.client_id ?? null,
+            statusCode: 'c0', // optional: replace with real status if you store it
+            szerokosc: 25, grubosc: 0.8, dlugosc: 2500, // demo display
             machineId: null,
-          };
-          if (mounted) setBlade(mockBlade);
+          });
         }
       } catch (e) {
         console.error(e);
+        if (mounted) setBlade(null);
       } finally {
         if (mounted) setLoading(false);
       }
-    }
-    loadBlade();
+    })();
     return () => { mounted = false; };
   }, [bladeId]);
 
@@ -93,7 +125,7 @@ export const ScanAction: React.FC = () => {
       machineId: undefined,
       notes: '',
       serviceOps: [],
-      clientId: undefined,
+      clientId: '',
       docChoice: 'NEW',
       hoursWorked: undefined,
     }
@@ -102,10 +134,11 @@ export const ScanAction: React.FC = () => {
   const opCode = watch('opCode');
   const selectedClientId = watch('clientId');
 
-  // Load clients when needed (for WZ/PZ target)
+  // ----- clients for WZ/PZ
   useEffect(() => {
     let mounted = true;
-    async function loadClients() {
+    if (!(opCode === 'WZ' || opCode === 'PZ')) return;
+    (async () => {
       try {
         const { data, error: err } = await supabase
           .from('clients')
@@ -114,17 +147,15 @@ export const ScanAction: React.FC = () => {
         if (err) throw err;
         if (mounted) setClients(data ?? []);
       } catch (e) { console.error(e); }
-    }
-    if (opCode === 'WZ' || opCode === 'PZ') loadClients();
-    // else keep previous selection
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    })();
+    return () => { mounted = false; };
   }, [opCode]);
 
-  // Load open docs when opCode & client chosen
+  // ----- open docs for selected client
   useEffect(() => {
     let mounted = true;
-    async function loadOpenDocs() {
-      if (!selectedClientId) { setOpenDocs([]); return; }
+    if (!(opCode === 'WZ' || opCode === 'PZ') || !selectedClientId) { setOpenDocs([]); return; }
+    (async () => {
       setLoadingDocs(true);
       try {
         const { data, error: err } = await supabase
@@ -138,16 +169,15 @@ export const ScanAction: React.FC = () => {
         if (mounted) setOpenDocs(data ?? []);
       } catch (e) { console.error(e); }
       finally { if (mounted) setLoadingDocs(false); }
-    }
-    if (opCode === 'WZ' || opCode === 'PZ') loadOpenDocs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    })();
+    return () => { mounted = false; };
   }, [opCode, selectedClientId]);
 
-  // Load machines for the chosen client (for ST1/ST2 convenience)
+  // ----- machines for ST1/ST2
   useEffect(() => {
     let mounted = true;
-    async function loadMachines() {
-      if (!selectedClientId) { setMachines([]); return; }
+    if (!selectedClientId || !(opCode === 'ST1' || opCode === 'ST2')) { setMachines([]); return; }
+    (async () => {
       setLoadingMachines(true);
       try {
         const { data, error: err } = await supabase
@@ -159,16 +189,16 @@ export const ScanAction: React.FC = () => {
         if (mounted) setMachines(data ?? []);
       } catch (e) { console.error(e); }
       finally { if (mounted) setLoadingMachines(false); }
-    }
-    if (opCode === 'ST1' || opCode === 'ST2') loadMachines();
+    })();
+    return () => { mounted = false; };
   }, [opCode, selectedClientId]);
 
-  // Helper: fetch last ST1 for runtime calculation
-  async function getLastST1(blade_id: string) {
+  // ----- helper: last ST1
+  async function getLastST1(blade_uuid: string) {
     const { data, error: err } = await supabase
       .from('movements')
       .select('*')
-      .eq('blade_id', blade_id)
+      .eq('blade_id', blade_uuid)
       .eq('op_code', 'ST1')
       .order('created_at', { ascending: false })
       .limit(1);
@@ -176,16 +206,13 @@ export const ScanAction: React.FC = () => {
     return data?.[0] ?? null;
   }
 
-  // Helper: create/select WZ/PZ doc and return {id, human_id}
+  // ----- helper: WZ/PZ doc (existing or new)
   async function ensureDoc(op: 'WZ'|'PZ', client_id: string) {
-    // If user selected existing:
     const choice = watch('docChoice');
     if (choice && choice !== 'NEW') {
       const existing = openDocs.find(d => d.id === choice);
       if (existing) return existing;
     }
-    // Create new
-    // Need client code2 to form human_id
     const { data: client, error: cErr } = await supabase
       .from('clients').select('code2').eq('id', client_id).maybeSingle();
     if (cErr) throw cErr;
@@ -211,16 +238,15 @@ export const ScanAction: React.FC = () => {
     return doc as WZPZDoc;
   }
 
-  // Helper: add blade to doc
-  async function addItemToDoc(doc_id: string, blade_id: string) {
+  async function addItemToDoc(doc_id: string, blade_uuid: string) {
     const { error: err } = await supabase
       .from('wzpz_items')
-      .insert({ doc_id, blade_id });
+      .insert({ doc_id, blade_id: blade_uuid });
     if (err) throw err;
   }
 
   const onSubmit = async (data: FormValues) => {
-    if (!user) return;
+    if (!user || !blade) return;
     setSubmitting(true);
 
     try {
@@ -234,32 +260,33 @@ export const ScanAction: React.FC = () => {
         'SR': 'service_in',
       };
 
-      // Derive hours for ST2 if not provided
+      // ST2 runtime (fallback 16h)
       let hoursWorked = data.hoursWorked;
-      if (data.opCode === 'ST2' && !hoursWorked) {
-        const last = await getLastST1(bladeId);
+      if (data.opCode === 'ST2' && (hoursWorked == null || Number.isNaN(hoursWorked))) {
+        const last = await getLastST1(blade.id);
         if (last?.created_at) {
           const diffMs = Date.now() - new Date(last.created_at).getTime();
           hoursWorked = Math.max(0, diffMs / 3_600_000);
         } else {
-          hoursWorked = 16; // default fallback; user may overwrite if you expose the field
+          hoursWorked = 16;
         }
       }
 
-      // If WZ/PZ: select or create doc, then add item; capture doc_ref
+      // WZ/PZ doc handling
       let docRef: string | undefined;
-      if ((data.opCode === 'WZ' || data.opCode === 'PZ')) {
+      if (data.opCode === 'WZ' || data.opCode === 'PZ') {
         if (!data.clientId) throw new Error('Client is required for WZ/PZ');
         const doc = await ensureDoc(data.opCode, data.clientId);
-        await addItemToDoc(doc.id, bladeId);
+        await addItemToDoc(doc.id, blade.id);   // <-- use UUID
         docRef = doc.human_id;
       }
 
+      // Create movement (use blade UUID)
       await createMovement({
-        blade_id: bladeId,
+        blade_id: blade.id,                      // <-- UUID now
         type: typeMap[data.opCode] as any,
         op_code: data.opCode as any,
-        client_id: data.clientId ?? null,
+        client_id: data.clientId ?? blade.client_id ?? null,
         machine_id: data.machineId ?? null,
         state_code: data.stateCode ?? null,
         hours_worked: hoursWorked ?? null,
@@ -268,8 +295,8 @@ export const ScanAction: React.FC = () => {
         note: data.notes?.trim(),
       } as any);
 
-      success(`Ruch ${data.opCode} został zarejestrowany dla ostrza ${bladeId}`);
-      navigate('/app');
+      success(`Ruch ${data.opCode} został zarejestrowany dla ostrza ${blade.code}`);
+      navigate('/app', { replace: true });
     } catch (e) {
       console.error(e);
       error('Błąd podczas rejestrowania ruchu');
@@ -301,8 +328,7 @@ export const ScanAction: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-20 md:pb-6">
-      <PageHeader title="Rejestruj ruch" subtitle={`Ostrze: ${blade.bladeId}`} showBack />
-
+      <PageHeader title="Rejestruj ruch" subtitle={`Ostrze: ${blade.code}`} showBack />
       <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Blade Info */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
@@ -317,11 +343,11 @@ export const ScanAction: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-600">ID Ostrza</label>
-                  <p className="mt-1 font-medium">{blade.bladeId}</p>
+                  <p className="mt-1 font-medium">{blade.code}</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-600">Aktualny status</label>
-                  <div className="mt-1"><StatusPill status={blade.statusCode} /></div>
+                  <div className="mt-1"><StatusPill status={blade.statusCode ?? 'c0'} /></div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-600">Specyfikacja</label>
@@ -344,7 +370,7 @@ export const ScanAction: React.FC = () => {
             <CardHeader><CardTitle>Wybierz akcję</CardTitle></CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-                {/* Operation Code */}
+                {/* opCode */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700">Typ operacji *</label>
                   <select
@@ -362,7 +388,7 @@ export const ScanAction: React.FC = () => {
                   {errors.opCode && <p className="text-sm text-error-600">{errors.opCode.message}</p>}
                 </div>
 
-                {/* Client selection for WZ/PZ */}
+                {/* client for WZ/PZ */}
                 {(['WZ','PZ'] as const).includes(opCode) && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -370,16 +396,12 @@ export const ScanAction: React.FC = () => {
                       <select
                         className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
                         {...register('clientId')}
-                        defaultValue={''}
+                        defaultValue=""
                       >
                         <option value="" disabled>— wybierz klienta —</option>
-                        {clients.map(c => (
-                          <option key={c.id} value={c.id}>{c.name} ({c.code2})</option>
-                        ))}
+                        {clients.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code2})</option>)}
                       </select>
-                      {errors.clientId && <p className="text-sm text-error-600">Wybierz klienta</p>}
                     </div>
-
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-gray-700">
                         Dokument {opCode} (istniejący / nowy)
@@ -388,17 +410,16 @@ export const ScanAction: React.FC = () => {
                         className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
                         {...register('docChoice')}
                         disabled={!selectedClientId || loadingDocs}
+                        defaultValue="NEW"
                       >
                         <option value="NEW">➕ Utwórz nowy</option>
-                        {openDocs.map(d => (
-                          <option key={d.id} value={d.id}>{d.human_id}</option>
-                        ))}
+                        {openDocs.map(d => <option key={d.id} value={d.id}>{d.human_id}</option>)}
                       </select>
                     </div>
                   </div>
                 )}
 
-                {/* Machine select for ST1 / ST2 */}
+                {/* machine for ST1/ST2 */}
                 {(['ST1','ST2'] as const).includes(opCode) && (
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-700">Maszyna (opcjonalnie)</label>
@@ -406,6 +427,7 @@ export const ScanAction: React.FC = () => {
                       {...register('machineId')}
                       className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
                       disabled={loadingMachines}
+                      defaultValue=""
                     >
                       <option value="">— brak —</option>
                       {machines.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -413,23 +435,24 @@ export const ScanAction: React.FC = () => {
                   </div>
                 )}
 
-                {/* State Code (optional) */}
+                {/* state code (optional) */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700">Nowy status ostrza (opcjonalnie)</label>
                   <select
                     {...register('stateCode')}
+                    defaultValue=""  // keep "no change" by default
                     className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
                   >
                     <option value="">Bez zmiany statusu</option>
                     {Object.entries(BLADE_STATUS_CODES).map(([code, labelKey]) => (
                       <option key={code} value={code}>
-                        {code} - {labelKey.split('.').pop()}
+                        {code} - {t(labelKey)}
                       </option>
                     ))}
                   </select>
                 </div>
 
-                {/* Hours worked (visible for ST2; user can override fallback) */}
+                {/* hours for ST2 */}
                 {opCode === 'ST2' && (
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-700">Czas pracy (godz.)</label>
@@ -439,20 +462,18 @@ export const ScanAction: React.FC = () => {
                       min={0}
                       {...register('hoursWorked')}
                       className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
-                      placeholder="Zostanie wyliczony z ST1, domyślnie 16h"
+                      placeholder="Wyliczymy z ST1, domyślnie 16h"
                     />
                   </div>
                 )}
 
-                {/* WZ/PZ Document Notice */}
+                {/* WZ/PZ info box */}
                 {(['WZ', 'PZ'] as const).includes(opCode) && (
                   <div className="p-4 bg-primary-50 border border-primary-200 rounded-xl">
                     <div className="flex items-start space-x-3">
                       <FileText className="h-5 w-5 text-primary-600 mt-0.5" />
                       <div>
-                        <h4 className="font-medium text-primary-900">
-                          Dokument {opCode} zostanie powiązany
-                        </h4>
+                        <h4 className="font-medium text-primary-900">Dokument {opCode} zostanie powiązany</h4>
                         <p className="text-sm text-primary-700 mt-1">
                           Wybierz istniejący dokument lub utwórz nowy. Ostrze zostanie do niego dodane.
                         </p>
@@ -461,7 +482,7 @@ export const ScanAction: React.FC = () => {
                   </div>
                 )}
 
-                {/* Service Operations (optional) */}
+                {/* service ops (optional) */}
                 {(['WZ','PZ'] as const).includes(opCode) && (
                   <div className="space-y-3">
                     <label className="text-sm font-medium text-gray-700">Operacje serwisowe (opcjonalnie)</label>
@@ -485,7 +506,7 @@ export const ScanAction: React.FC = () => {
                   </div>
                 )}
 
-                {/* Notes */}
+                {/* notes */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700">Uwagi</label>
                   <textarea
@@ -496,9 +517,15 @@ export const ScanAction: React.FC = () => {
                   />
                 </div>
 
-                {/* Submit */}
+                {/* actions */}
                 <div className="flex space-x-4 pt-6">
-                  <Button type="button" variant="outline" onClick={() => navigate(-1)} className="flex-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => navigate('/app/scanner')}
+                    onTouchEnd={() => navigate('/app/scanner')}
+                    className="flex-1"
+                  >
                     Anuluj
                   </Button>
                   <Button type="submit" disabled={submitting} className="flex-1">
@@ -514,5 +541,4 @@ export const ScanAction: React.FC = () => {
   );
 };
 
-// Provide both exports so router imports work either way
 export default ScanAction;
