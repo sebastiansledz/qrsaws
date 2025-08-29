@@ -5,9 +5,9 @@ import './lib/i18n';
 
 export default function App() {
   return (
-    <>
+    <div>
       <AppRouter />
       <Toaster />
-    </>
+    </div>
   );
 }
