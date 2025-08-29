@@ -53,7 +53,7 @@ export const ScanAction: React.FC = () => {
 
   const [blade, setBlade] = useState<{
     id: string;           // UUID in DB
-    code: string;         // human code like BLD01
+    blade_code: string;         // human code like BLD01
     client_id: string | null;
     statusCode?: string | null;
     szerokosc?: number; grubosc?: number; dlugosc?: number;
