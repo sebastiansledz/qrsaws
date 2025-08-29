@@ -145,3 +145,73 @@ export async function listServiceOps() {
   const { data, error } = await supabase.from('service_ops').select('*').order('id');
   return assertNoError(data, error);
 }
+
+export async function listOpenDocs(type: 'WZ'|'PZ', client_id: string) {
+  const { data, error } = await supabase
+    .from('wzpz_docs')
+    .select('*')
+    .eq('type', type)
+    .eq('client_id', client_id)
+    .eq('status', 'open')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createDoc(type: 'WZ'|'PZ', client_id: string, client_code2: string, by_user?: string) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+
+  const { data: last } = await supabase
+    .from('wzpz_docs')
+    .select('seq')
+    .eq('client_id', client_id).eq('type', type)
+    .eq('year', year).eq('month', month)
+    .order('seq', { ascending: false })
+    .limit(1);
+  const seq = (last?.[0]?.seq ?? 0) + 1;
+
+  const human_id = `${type}/${client_code2}/${year}/${String(month).padStart(2,'0')}/${String(seq).padStart(3,'0')}`;
+
+  const { data, error } = await supabase
+    .from('wzpz_docs')
+    .insert({ type, client_id, seq, year, month, human_id, created_by: by_user })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function addItemToDoc(doc_id: string, blade_id: string) {
+  const { data, error } = await supabase
+    .from('wzpz_items')
+    .insert({ doc_id, blade_id })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function closeDoc(doc_id: string, by_user?: string) {
+  const { data, error } = await supabase
+    .from('wzpz_docs')
+    .update({ status: 'closed', closed_at: new Date().toISOString(), closed_by: by_user })
+    .eq('id', doc_id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function getLastST1(blade_id: string) {
+  const { data, error } = await supabase
+    .from('movements')
+    .select('*')
+    .eq('blade_id', blade_id)
+    .eq('op_code', 'ST1')
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
