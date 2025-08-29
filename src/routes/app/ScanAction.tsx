@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useForm } from 'react-hook-form';
@@ -16,7 +16,6 @@ import { useNotify } from '../../lib/notify';
 import { supabase } from '../../lib/supabase';
 import { useTranslation } from 'react-i18next';
 
-// ----- form schema
 const formSchema = z.object({
   opCode: z.enum(['MD','PZ','SR','ST1','ST2','WZ','MAGAZYN']),
   stateCode: z.enum(['c0','c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12','c13','c14']).optional(),
@@ -30,12 +29,8 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 type WZPZDoc = {
-  id: string;
-  type: 'WZ'|'PZ';
-  client_id: string;
-  human_id: string;
-  status: 'open'|'closed';
-  year: number; month: number; seq: number;
+  id: string; type: 'WZ'|'PZ'; client_id: string; human_id: string;
+  status: 'open'|'closed'; year: number; month: number; seq: number;
 };
 type ClientLite = { id: string; name: string; code2: string };
 type MachineLite = { id: string; name: string };
@@ -52,12 +47,14 @@ export const ScanAction: React.FC = () => {
   const { success, error } = useNotify();
 
   const [blade, setBlade] = useState<{
-    id: string;           // UUID in DB
-    blade_code: string;         // human code like BLD01
+    id: string;             // UUID
+    blade_code: string;     // e.g. BLD01
     client_id: string | null;
-    statusCode?: string | null;
-    szerokosc?: number; grubosc?: number; dlugosc?: number;
-    machineId?: string | null;
+    status: string | null;  // 'c0'..'c14'
+    width_mm?: number | null;
+    thickness_mm?: number | null;
+    length_mm?: number | null;
+    machine?: string | null;
   } | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -69,42 +66,33 @@ export const ScanAction: React.FC = () => {
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [loadingMachines, setLoadingMachines] = useState(false);
 
-  // ----- resolve blade (code or UUID) -> DB row
+  // Resolve blade by UUID or by blade_code
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         if (!bladeId) return;
+        const col = isUuid(bladeId) ? 'id' : 'blade_code';
+        const val = isUuid(bladeId) ? bladeId : decodeURIComponent(bladeId);
 
-        let row: any = null;
-        if (isUuid(bladeId)) {
-          const { data, error: err } = await supabase
-            .from('blades')
-            .select('id, code, client_id')
-            .eq('id', bladeId)
-            .maybeSingle();
-          if (err) throw err;
-          row = data;
-        } else {
-          const { data, error: err } = await supabase
-            .from('blades')
-            .select('id, code, client_id')
-            .eq('code', decodeURIComponent(bladeId))
-            .maybeSingle();
-          if (err) throw err;
-          row = data;
-        }
-
-        if (!row) throw new Error(`Blade not found: ${bladeId}`);
+        const { data, error: err } = await supabase
+          .from('blades')
+          .select('id, blade_code, client_id, status, width_mm, thickness_mm, length_mm, machine')
+          .eq(col, val)
+          .maybeSingle();
+        if (err) throw err;
+        if (!data) throw new Error(`Blade not found: ${bladeId}`);
 
         if (mounted) {
           setBlade({
-            id: row.id,
-            code: row.code ?? decodeURIComponent(bladeId),
-            client_id: row.client_id ?? null,
-            statusCode: 'c0', // optional: replace with real status if you store it
-            szerokosc: 25, grubosc: 0.8, dlugosc: 2500, // demo display
-            machineId: null,
+            id: data.id,
+            blade_code: data.blade_code,
+            client_id: data.client_id ?? null,
+            status: data.status ?? 'c0',
+            width_mm: data.width_mm ?? null,
+            thickness_mm: data.thickness_mm ?? null,
+            length_mm: data.length_mm ?? null,
+            machine: data.machine ?? null,
           });
         }
       } catch (e) {
@@ -134,7 +122,7 @@ export const ScanAction: React.FC = () => {
   const opCode = watch('opCode');
   const selectedClientId = watch('clientId');
 
-  // ----- clients for WZ/PZ
+  // Load clients for WZ/PZ
   useEffect(() => {
     let mounted = true;
     if (!(opCode === 'WZ' || opCode === 'PZ')) return;
@@ -151,7 +139,7 @@ export const ScanAction: React.FC = () => {
     return () => { mounted = false; };
   }, [opCode]);
 
-  // ----- open docs for selected client
+  // Load open docs for selected client
   useEffect(() => {
     let mounted = true;
     if (!(opCode === 'WZ' || opCode === 'PZ') || !selectedClientId) { setOpenDocs([]); return; }
@@ -173,17 +161,18 @@ export const ScanAction: React.FC = () => {
     return () => { mounted = false; };
   }, [opCode, selectedClientId]);
 
-  // ----- machines for ST1/ST2
+  // Load machines for ST1/ST2 (from new machines table); fall back to blade.client_id
   useEffect(() => {
     let mounted = true;
-    if (!selectedClientId || !(opCode === 'ST1' || opCode === 'ST2')) { setMachines([]); return; }
+    const clientForMachines = selectedClientId || blade?.client_id;
+    if (!(opCode === 'ST1' || opCode === 'ST2') || !clientForMachines) { setMachines([]); return; }
     (async () => {
       setLoadingMachines(true);
       try {
         const { data, error: err } = await supabase
           .from('machines')
           .select('id, name')
-          .eq('client_id', selectedClientId)
+          .eq('client_id', clientForMachines)
           .order('name');
         if (err) throw err;
         if (mounted) setMachines(data ?? []);
@@ -191,9 +180,9 @@ export const ScanAction: React.FC = () => {
       finally { if (mounted) setLoadingMachines(false); }
     })();
     return () => { mounted = false; };
-  }, [opCode, selectedClientId]);
+  }, [opCode, selectedClientId, blade?.client_id]);
 
-  // ----- helper: last ST1
+  // Helpers
   async function getLastST1(blade_uuid: string) {
     const { data, error: err } = await supabase
       .from('movements')
@@ -206,7 +195,6 @@ export const ScanAction: React.FC = () => {
     return data?.[0] ?? null;
   }
 
-  // ----- helper: WZ/PZ doc (existing or new)
   async function ensureDoc(op: 'WZ'|'PZ', client_id: string) {
     const choice = watch('docChoice');
     if (choice && choice !== 'NEW') {
@@ -260,7 +248,7 @@ export const ScanAction: React.FC = () => {
         'SR': 'service_in',
       };
 
-      // ST2 runtime (fallback 16h)
+      // runtime for ST2
       let hoursWorked = data.hoursWorked;
       if (data.opCode === 'ST2' && (hoursWorked == null || Number.isNaN(hoursWorked))) {
         const last = await getLastST1(blade.id);
@@ -277,25 +265,24 @@ export const ScanAction: React.FC = () => {
       if (data.opCode === 'WZ' || data.opCode === 'PZ') {
         if (!data.clientId) throw new Error('Client is required for WZ/PZ');
         const doc = await ensureDoc(data.opCode, data.clientId);
-        await addItemToDoc(doc.id, blade.id);   // <-- use UUID
+        await addItemToDoc(doc.id, blade.id); // blade UUID
         docRef = doc.human_id;
       }
 
-      // Create movement (use blade UUID)
       await createMovement({
-        blade_id: blade.id,                      // <-- UUID now
+        blade_id: blade.id,                              // UUID
         type: typeMap[data.opCode] as any,
         op_code: data.opCode as any,
         client_id: data.clientId ?? blade.client_id ?? null,
-        machine_id: data.machineId ?? null,
-        state_code: data.stateCode ?? null,
+        machine_id: data.machineId ?? null,              // optional (machines table)
+        state_code: data.stateCode ?? null,              // only if chosen
         hours_worked: hoursWorked ?? null,
         doc_ref: docRef ?? null,
         service_ops: data.serviceOps && data.serviceOps.length ? data.serviceOps : undefined,
         note: data.notes?.trim(),
       } as any);
 
-      success(`Ruch ${data.opCode} został zarejestrowany dla ostrza ${blade.code}`);
+      success(`Ruch ${data.opCode} został zarejestrowany dla ostrza ${blade.blade_code}`);
       navigate('/app', { replace: true });
     } catch (e) {
       console.error(e);
@@ -328,7 +315,9 @@ export const ScanAction: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-20 md:pb-6">
-      <PageHeader title="Rejestruj ruch" subtitle={`Ostrze: ${blade.code}`} showBack />
+      {/* If PageHeader supports custom back, consider passing onBack={() => navigate('/app/scanner')} */}
+      <PageHeader title="Rejestruj ruch" subtitle={`Ostrze: ${blade.blade_code}`} showBack />
+
       <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Blade Info */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
@@ -343,21 +332,21 @@ export const ScanAction: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-600">ID Ostrza</label>
-                  <p className="mt-1 font-medium">{blade.code}</p>
+                  <p className="mt-1 font-medium">{blade.blade_code}</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-600">Aktualny status</label>
-                  <div className="mt-1"><StatusPill status={blade.statusCode ?? 'c0'} /></div>
+                  <div className="mt-1"><StatusPill status={blade.status ?? 'c0'} /></div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-600">Specyfikacja</label>
                   <p className="mt-1 text-sm text-gray-700">
-                    {blade.szerokosc}×{blade.grubosc}×{blade.dlugosc}mm
+                    {(blade.width_mm ?? '—')}×{(blade.thickness_mm ?? '—')}×{(blade.length_mm ?? '—')}mm
                   </p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-600">Maszyna</label>
-                  <p className="mt-1 text-sm text-gray-700">{blade.machineId || '-'}</p>
+                  <p className="mt-1 text-sm text-gray-700">{blade.machine || '-'}</p>
                 </div>
               </div>
             </CardContent>
@@ -370,13 +359,10 @@ export const ScanAction: React.FC = () => {
             <CardHeader><CardTitle>Wybierz akcję</CardTitle></CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-                {/* opCode */}
+                {/* Operation Code */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700">Typ operacji *</label>
-                  <select
-                    className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
-                    {...register('opCode')}
-                  >
+                  <select className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm" {...register('opCode')}>
                     <option value="WZ">WZ — Przyjąłem piłę</option>
                     <option value="ST1">ST1 — Założyłem na trak</option>
                     <option value="ST2">ST2 — Zdjąłem z traka</option>
@@ -388,30 +374,19 @@ export const ScanAction: React.FC = () => {
                   {errors.opCode && <p className="text-sm text-error-600">{errors.opCode.message}</p>}
                 </div>
 
-                {/* client for WZ/PZ */}
+                {/* Client for WZ/PZ */}
                 {(['WZ','PZ'] as const).includes(opCode) && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-gray-700">Klient *</label>
-                      <select
-                        className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
-                        {...register('clientId')}
-                        defaultValue=""
-                      >
+                      <select className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm" {...register('clientId')} defaultValue="">
                         <option value="" disabled>— wybierz klienta —</option>
                         {clients.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code2})</option>)}
                       </select>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-700">
-                        Dokument {opCode} (istniejący / nowy)
-                      </label>
-                      <select
-                        className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
-                        {...register('docChoice')}
-                        disabled={!selectedClientId || loadingDocs}
-                        defaultValue="NEW"
-                      >
+                      <label className="text-sm font-medium text-gray-700">Dokument {opCode} (istniejący / nowy)</label>
+                      <select className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm" {...register('docChoice')} disabled={!selectedClientId || loadingDocs} defaultValue="NEW">
                         <option value="NEW">➕ Utwórz nowy</option>
                         {openDocs.map(d => <option key={d.id} value={d.id}>{d.human_id}</option>)}
                       </select>
@@ -419,30 +394,21 @@ export const ScanAction: React.FC = () => {
                   </div>
                 )}
 
-                {/* machine for ST1/ST2 */}
+                {/* Machine for ST1/ST2 (optional, from machines table) */}
                 {(['ST1','ST2'] as const).includes(opCode) && (
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-700">Maszyna (opcjonalnie)</label>
-                    <select
-                      {...register('machineId')}
-                      className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
-                      disabled={loadingMachines}
-                      defaultValue=""
-                    >
+                    <select {...register('machineId')} className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm" disabled={loadingMachines} defaultValue="">
                       <option value="">— brak —</option>
                       {machines.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                     </select>
                   </div>
                 )}
 
-                {/* state code (optional) */}
+                {/* State Code (optional, keep default "no change") */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700">Nowy status ostrza (opcjonalnie)</label>
-                  <select
-                    {...register('stateCode')}
-                    defaultValue=""  // keep "no change" by default
-                    className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
-                  >
+                  <select {...register('stateCode')} defaultValue="" className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm">
                     <option value="">Bez zmiany statusu</option>
                     {Object.entries(BLADE_STATUS_CODES).map(([code, labelKey]) => (
                       <option key={code} value={code}>
@@ -452,7 +418,7 @@ export const ScanAction: React.FC = () => {
                   </select>
                 </div>
 
-                {/* hours for ST2 */}
+                {/* Hours for ST2 */}
                 {opCode === 'ST2' && (
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-700">Czas pracy (godz.)</label>
@@ -467,22 +433,20 @@ export const ScanAction: React.FC = () => {
                   </div>
                 )}
 
-                {/* WZ/PZ info box */}
+                {/* Info box for WZ/PZ */}
                 {(['WZ', 'PZ'] as const).includes(opCode) && (
                   <div className="p-4 bg-primary-50 border border-primary-200 rounded-xl">
                     <div className="flex items-start space-x-3">
                       <FileText className="h-5 w-5 text-primary-600 mt-0.5" />
                       <div>
                         <h4 className="font-medium text-primary-900">Dokument {opCode} zostanie powiązany</h4>
-                        <p className="text-sm text-primary-700 mt-1">
-                          Wybierz istniejący dokument lub utwórz nowy. Ostrze zostanie do niego dodane.
-                        </p>
+                        <p className="text-sm text-primary-700 mt-1">Wybierz istniejący dokument lub utwórz nowy. Ostrze zostanie do niego dodane.</p>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* service ops (optional) */}
+                {/* Service ops */}
                 {(['WZ','PZ'] as const).includes(opCode) && (
                   <div className="space-y-3">
                     <label className="text-sm font-medium text-gray-700">Operacje serwisowe (opcjonalnie)</label>
@@ -506,7 +470,7 @@ export const ScanAction: React.FC = () => {
                   </div>
                 )}
 
-                {/* notes */}
+                {/* Notes */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700">Uwagi</label>
                   <textarea
@@ -517,7 +481,7 @@ export const ScanAction: React.FC = () => {
                   />
                 </div>
 
-                {/* actions */}
+                {/* Actions */}
                 <div className="flex space-x-4 pt-6">
                   <Button
                     type="button"
