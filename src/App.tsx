@@ -1,13 +1,21 @@
 import React from 'react';
-import { AppRouter } from './router';
+import { RouterProvider } from 'react-router-dom';
+import { router } from './router';
 import { Toaster } from './components/ui/toaster';
+import useAuth from './hooks/useAuth';
 import './lib/i18n';
 
-export default function App() {
+function AuthProvider({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
+}
+
+function AppWithAuth() {
   return (
-    <div>
-      <AppRouter />
+    <AuthProvider>
+      <RouterProvider router={router} />
       <Toaster />
-    </div>
+    </AuthProvider>
   );
 }
+
+export default AppWithAuth;

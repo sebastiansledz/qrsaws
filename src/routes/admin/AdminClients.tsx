@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Plus, Edit, Settings, Trash2 } from 'lucide-react';
@@ -18,29 +17,42 @@ import { clientSchema, machineSchema, ClientFormData, MachineFormData } from '..
 import { createFormConfig } from '../../lib/forms';
 import { useNotify } from '../../lib/notify';
 
-function useClients() {
-  return useQuery({
-    queryKey: ['clients'],
-    queryFn: async () => {
-      const data = await listClientsLite();
-      return data;
-    },
-  });
-}
-
 export const AdminClients: React.FC = () => {
   const { isAdmin, loading } = useAuth();
   const { success, error: notifyError } = useNotify();
-  const { data: rows = [], isFetching, refetch } = useClients();
+  const [rows, setRows] = useState<Array<{
+    id: string; name: string; code2: string | null;
+    email: string | null; phone: string | null;
+    nip: string | null; address: string | null;
+  }>>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [machines, setMachines] = useState<any[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
   const [showClientDialog, setShowClientDialog] = useState(false);
   const [showMachinesDialog, setShowMachinesDialog] = useState(false);
   const [showMachineForm, setShowMachineForm] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [localError, setLocalError] = useState<string | undefined>();
 
   const clientForm = useForm<ClientFormData>(createFormConfig(clientSchema));
   const machineForm = useForm<MachineFormData>(createFormConfig(machineSchema));
+
+  useEffect(() => {
+    if (loading) return;
+    if (!isAdmin) return;
+    
+    (async () => {
+      try {
+        const clientsData = await listClientsLite();
+        setRows(clientsData);
+      } catch (error) {
+        console.error('Error loading clients:', error);
+        setLocalError('Nie udało się załadować listy klientów.');
+      } finally {
+        setDataLoading(false);
+      }
+    })();
+  }, [loading, isAdmin]);
 
   if (loading) {
     return (
@@ -58,10 +70,18 @@ export const AdminClients: React.FC = () => {
     );
   }
 
-  if (isFetching && rows.length === 0) {
+  if (dataLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
+  if (localError) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-error-600">{localError}</p>
       </div>
     );
   }
@@ -111,11 +131,11 @@ export const AdminClients: React.FC = () => {
 
       if (editingClient) {
         const updated = await updateClientSB(editingClient.id, payload);
-        refetch(); // Refresh the query data
+        setRows((prev) => prev.map(r => r.id === updated.id ? updated : r));
         success('Zapisano zmiany klienta.');
       } else {
         const created = await createClientSB(payload);
-        refetch(); // Refresh the query data
+        setRows((prev) => [created, ...prev]);
         success('Dodano klienta.');
       }
 

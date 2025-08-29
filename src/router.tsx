@@ -1,5 +1,5 @@
 import React from 'react';
-import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import LandingRedirect from './routes/LandingRedirect';
 import { AppErrorBoundary } from './components/common/AppErrorBoundary';
@@ -200,7 +200,3 @@ export const router = createBrowserRouter([
     element: <Navigate to="/" replace />,
   },
 ]);
-
-export function AppRouter() {
-  return <RouterProvider router={router} />;
-}
