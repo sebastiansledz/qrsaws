@@ -71,7 +71,7 @@ export const BladeDetails: React.FC = () => {
         const ident = decodeURIComponent(id);
         const field = isUUID(ident) ? 'id' : 'blade_code';
 
-        // 1) Blade (required)
+        // 1) Blade
         const { data: bladeRow, error: bErr } = await supabase
           .from('blades')
           .select('id, blade_code, client_id, width_mm, thickness_mm, length_mm, pitch, spec, machine, status')
@@ -101,7 +101,8 @@ export const BladeDetails: React.FC = () => {
         // 3) QR (best-effort)
         try {
           const qr = await generateQRPNG(bladeRow.blade_code);
-          if (!cancelled) setQrDataUrl(qr);
+          // accept data URL or blob URL
+          if (!cancelled) setQrDataUrl(typeof qr === 'string' ? qr : String(qr));
         } catch (e) {
           console.error('QR generate error', e);
         }
@@ -121,7 +122,7 @@ export const BladeDetails: React.FC = () => {
           if (!cancelled) setMovements([]);
         }
 
-        // 5) WZPZ docs (best-effort, uses human_id per schema)
+        // 5) WZPZ docs (best-effort) — uses human_id per schema you shared
         try {
           const { data: items, error: iErr } = await supabase
             .from('wzpz_items')
@@ -151,36 +152,52 @@ export const BladeDetails: React.FC = () => {
         if (!cancelled) setLoading(false);
       }
     })();
-
     return () => { cancelled = true; };
   }, [id]);
 
-  const specText = useMemo(() => {
-    if (!blade) return '—×—×—mm';
-    const w = blade.width_mm ?? '—';
-    const t = blade.thickness_mm ?? '—';
-    const l = blade.length_mm ?? '—';
-    return `${w}×${t}×${l}mm`;
-  }, [blade]);
+  // split spec blocks like in the original UI
+  const width = blade?.width_mm ?? '—';
+  const thick = blade?.thickness_mm ?? '—';
+  const length = blade?.length_mm ?? '—';
+  const pitch = blade?.pitch ?? '—';
+  const tooth = blade?.spec ?? '—';
+  const sawType = blade?.machine ?? '—';
 
-  const headerTitle = useMemo(() => {
-    if (!blade) return 'Piła';
-    return `Piła ${blade.blade_code}`;
-  }, [blade]);
+  const headerTitle = blade ? `Piła ${blade.blade_code}` : 'Piła';
+  const headerSubtitle = client ? `${client.name} (${client.code2 ?? '—'})` : undefined;
 
-  const headerSubtitle = useMemo(() => {
-    if (!client) return undefined;
-    return `${client.name} (${client.code2 ?? '—'})`;
-  }, [client]);
+  const handleEdit = () => { if (blade) navigate(`/admin/blade/${encodeURIComponent(blade.blade_code)}/edit`); };
 
-  const handleEdit = () => {
-    if (blade) navigate(`/admin/blade/${encodeURIComponent(blade.blade_code)}/edit`);
+  const handleDownloadQR = async () => {
+    if (!blade) return;
+    const filename = `${blade.blade_code}.png`;
+
+    // Prefer the rendered QR (guaranteed PNG data URL from generateQRPNG)
+    if (qrDataUrl) {
+      try {
+        const a = document.createElement('a');
+        a.href = qrDataUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return;
+      } catch (e) {
+        console.error('Direct QR download failed, fallback to helper', e);
+      }
+    }
+    // Fallback to existing helper (in case it generates on demand)
+    try {
+      await downloadQR(blade.blade_code);
+    } catch (e) {
+      console.error('downloadQR helper failed', e);
+    }
   };
-  const handleDownloadQR = async () => { if (blade) { try { await downloadQR(blade.blade_code); } catch {} } };
+
   const handlePrintLabel = async () => { if (blade) { try { await printQRLabel(blade.blade_code); } catch {} } };
 
   return (
-    <div className="space-y-6 pb-20 md:pb-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 pb-20 md:pb-6">
       <PageHeader
         title={headerTitle}
         subtitle={headerSubtitle}
@@ -205,6 +222,7 @@ export const BladeDetails: React.FC = () => {
 
       {/* Top: QR (left) + Info (right) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* QR card */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <Card className="h-full">
             <CardHeader>
@@ -237,6 +255,7 @@ export const BladeDetails: React.FC = () => {
           </Card>
         </motion.div>
 
+        {/* Info card */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -250,7 +269,7 @@ export const BladeDetails: React.FC = () => {
                 <span>Informacje o pile</span>
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <div className="text-sm text-gray-600">ID Piły</div>
@@ -270,19 +289,36 @@ export const BladeDetails: React.FC = () => {
                   <div className="text-sm text-gray-600">Maszyna</div>
                   <div className="font-medium">{blade?.machine ?? '—'}</div>
                 </div>
-                <div className="md:col-span-2">
-                  <div className="text-sm text-gray-600">Specyfikacja</div>
-                  <div className="font-medium">{specText}</div>
-                  {!!blade?.pitch && (
-                    <div className="text-sm text-gray-600">
-                      Podziałka: <span className="font-medium">{blade.pitch}</span>
-                    </div>
-                  )}
-                  {!!blade?.spec && (
-                    <div className="text-sm text-gray-600">
-                      Uzębienie: <span className="font-medium">{blade.spec}</span>
-                    </div>
-                  )}
+              </div>
+
+              {/* Spec grid — split just like the original design */}
+              <div>
+                <div className="text-sm text-gray-600 mb-3">Specyfikacja</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  <div>
+                    <div className="text-sm text-gray-500">Szerokość:</div>
+                    <div className="font-semibold">{width} <span className="font-normal">mm</span></div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Grubość:</div>
+                    <div className="font-semibold">{thick} <span className="font-normal">mm</span></div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Długość:</div>
+                    <div className="font-semibold">{length} <span className="font-normal">mm</span></div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Podziałka:</div>
+                    <div className="font-semibold">{pitch}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Uzębienie:</div>
+                    <div className="font-semibold">{tooth}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Typ pilarki:</div>
+                    <div className="font-semibold">{sawType}</div>
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -334,7 +370,7 @@ export const BladeDetails: React.FC = () => {
         </Card>
       </motion.div>
 
-      {/* WZPZ documents (uses human_id) */}
+      {/* WZPZ documents */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
         <Card>
           <CardHeader>
@@ -343,44 +379,42 @@ export const BladeDetails: React.FC = () => {
               <span>Dokumenty WZPZ</span>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Numer dokumentu</TableHead>
-                  <TableHead>Typ</TableHead>
-                  <TableHead>Data utworzenia</TableHead>
-                  <TableHead className="text-right">Akcje</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {docs.length ? (
-                  docs.map((d) => (
-                    <TableRow key={d.id}>
-                      <TableCell>{d.human_id}</TableCell>
-                      <TableCell>
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                            d.type === 'WZ' ? 'bg-emerald-50 text-emerald-700' : 'bg-cyan-50 text-cyan-700'
-                          }`}
-                        >
-                          {d.type === 'WZ' ? 'Wydanie zewnętrzne' : 'Przyjęcie zewnętrzne'}
-                        </span>
-                      </TableCell>
-                      <TableCell>{new Date(d.created_at).toLocaleString()}</TableCell>
-                      <TableCell className="text-right">
-                        <Button size="sm" variant="outline">Pobierz PDF</Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-gray-500">Brak dokumentów WZPZ</TableCell>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Numer dokumentu</TableHead>
+                <TableHead>Typ</TableHead>
+                <TableHead>Data utworzenia</TableHead>
+                <TableHead className="text-right">Akcje</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {docs.length ? (
+                docs.map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell>{d.human_id}</TableCell>
+                    <TableCell>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        d.type === 'WZ' ? 'bg-emerald-50 text-emerald-700' : 'bg-cyan-50 text-cyan-700'
+                      }`}>
+                        {d.type === 'WZ' ? 'Wydanie zewnętrzne' : 'Przyjęcie zewnętrzne'}
+                      </span>
+                    </TableCell>
+                    <TableCell>{new Date(d.created_at).toLocaleString()}</TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="outline">Pobierz PDF</Button>
+                    </TableCell>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-gray-500">Brak dokumentów WZPZ</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
         </Card>
       </motion.div>
     </div>
