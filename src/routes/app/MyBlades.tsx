@@ -1,238 +1,141 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Package, Search, Filter, Eye } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Input } from '../../components/ui/input';
-import { Button } from '../../components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
-import { StatusPill } from '../../components/common/StatusPill';
+import { Input } from '../../components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Button } from '../../components/ui/button';
 import { PageHeader } from '../../components/common/PageHeader';
+import { StatusPill } from '../../components/common/StatusPill';
 import useAuth from '../../hooks/useAuth';
-import { Blade } from '../../types/blade';
-import { BLADE_STATUS_CODES } from '../../constants/blade';
+import { supabase } from '../../lib/supabase';
+
+type Row = {
+  id: string;
+  blade_code: string;
+  status: string | null;
+  width_mm: number | null;
+  thickness_mm: number | null;
+  length_mm: number | null;
+  machine: string | null;
+  lastMovementAt?: string | null;
+};
 
 export const MyBlades: React.FC = () => {
-  const { user, profile } = useAuth();
-  const [blades, setBlades] = useState<Blade[]>([]);
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedMachine, setSelectedMachine] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('');
+  const [rows, setRows] = useState<Row[]>([]);
+  const [q, setQ] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
   useEffect(() => {
-    const loadMyBlades = async () => {
+    let cancelled = false;
+    (async () => {
       try {
-        // TODO: Load blades where clientId === profile?.client_id
-        // Mock data for now
-        const mockBlades: Blade[] = [
-          {
-            bladeId: 'BS-001-2024',
-            clientId: profile?.user_id || 'client-1',
-            machineId: 'machine-1',
-            szerokosc: 25,
-            grubosc: 0.8,
-            dlugosc: 2500,
-            podzialka: '22mm',
-            uzebienie: 'Standard',
-            system: 'Metric',
-            typPilarki: 'Taśmowa',
-            statusCode: 'c0',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            lastMovementAt: new Date(),
-            qr: {
-              pngPath: 'qrs/blades/BS-001-2024.png',
-              svgPath: 'qrs/blades/BS-001-2024.svg',
-            },
-          },
-          {
-            bladeId: 'BS-002-2024',
-            clientId: profile?.user_id || 'client-1',
-            machineId: 'machine-2',
-            szerokosc: 30,
-            grubosc: 1.0,
-            dlugosc: 3000,
-            podzialka: '25mm',
-            uzebienie: 'Aggressive',
-            system: 'Imperial',
-            typPilarki: 'Tarczowa',
-            statusCode: 'c1',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            lastMovementAt: new Date(),
-            qr: {
-              pngPath: 'qrs/blades/BS-002-2024.png',
-              svgPath: 'qrs/blades/BS-002-2024.svg',
-            },
-          },
-        ];
-        
-        setBlades(mockBlades);
-      } catch (error) {
-        console.error('Error loading my blades:', error);
+        if (!profile?.client_id) { setRows([]); return; }
+        const { data: blades, error: bErr } = await supabase
+          .from('blades')
+          .select('id, blade_code, status, width_mm, thickness_mm, length_mm, machine, created_at')
+          .eq('client_id', profile.client_id)
+          .order('created_at', { ascending: false });
+        if (bErr) throw bErr;
+
+        const ids = (blades ?? []).map(b => b.id);
+        let latest: Record<string, string> = {};
+        if (ids.length) {
+          const { data: mv, error: mErr } = await supabase
+            .from('movements')
+            .select('blade_id, created_at')
+            .in('blade_id', ids)
+            .order('created_at', { ascending: false });
+          if (mErr) throw mErr;
+          for (const m of mv ?? []) {
+            if (!latest[m.blade_id]) latest[m.blade_id] = m.created_at;
+          }
+        }
+
+        const mapped: Row[] = (blades ?? []).map((b) => ({
+          ...b,
+          lastMovementAt: latest[b.id] ?? null,
+        }));
+
+        if (!cancelled) setRows(mapped);
+      } catch (e) {
+        console.error('MyBlades load error', e);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    };
+    })();
+    return () => { cancelled = true; };
+  }, [profile?.client_id]);
 
-    loadMyBlades();
-  }, [profile?.user_id]);
-
-  const machines = ['machine-1', 'machine-2']; // TODO: Load from Firestore
-
-  const filteredBlades = blades.filter(blade => {
-    const matchesSearch = blade.bladeId.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesMachine = !selectedMachine || blade.machineId === selectedMachine;
-    const matchesStatus = !selectedStatus || blade.statusCode === selectedStatus;
-    
-    return matchesSearch && matchesMachine && matchesStatus;
-  });
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    );
-  }
+  const filtered = useMemo(() => {
+    return rows.filter((r) => {
+      const passQ = !q || r.blade_code.toLowerCase().includes(q.toLowerCase());
+      const passStatus = statusFilter === 'ALL' || (r.status ?? 'c0') === statusFilter;
+      return passQ && passStatus;
+    });
+  }, [rows, q, statusFilter]);
 
   return (
-    <div className="space-y-6 pb-20 md:pb-6">
-      <PageHeader
-        title="Moje ostrza"
-        subtitle={`${filteredBlades.length} ostrzy w systemie`}
-        showBack
-      />
+    <div className="space-y-6">
+      <PageHeader title="Moje piły" subtitle="Lista" showBack />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Filters */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Filter className="h-5 w-5" />
-              <span>Filtry</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Wyszukaj</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="ID ostrza..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Maszyna</label>
-                <select
-                  value={selectedMachine}
-                  onChange={(e) => setSelectedMachine(e.target.value)}
-                  className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  <option value="">Wszystkie maszyny</option>
-                  {machines.map(machine => (
-                    <option key={machine} value={machine}>
-                      {machine}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Status</label>
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  <option value="">Wszystkie statusy</option>
-                  {Object.entries(BLADE_STATUS_CODES).map(([code, labelKey]) => (
-                    <option key={code} value={code}>
-                      {code} - {labelKey.split('.').pop()}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <Card>
+        <CardHeader><CardTitle>Filtry i wyszukiwanie</CardTitle></CardHeader>
+        <CardContent className="grid md:grid-cols-3 gap-3">
+          <Input placeholder="ID piły..." value={q} onChange={(e) => setQ(e.target.value)} />
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger><SelectValue placeholder="Wszystkie statusy" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Wszystkie statusy</SelectItem>
+              {['c0','c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12','c13','c14'].map(s => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div />
+        </CardContent>
+      </Card>
 
-        {/* Blades Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Package className="h-5 w-5" />
-              <span>Lista ostrzy ({filteredBlades.length})</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>ID Ostrza</TableHead>
-                    <TableHead>Maszyna</TableHead>
-                    <TableHead>Specyfikacja</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Ostatni ruch</TableHead>
-                    <TableHead className="text-right">Akcje</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredBlades.map((blade, index) => (
-                    <motion.tr
-                      key={blade.bladeId}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: index * 0.05 }}
-                      className="hover:bg-muted/50 transition-colors"
-                    >
-                      <TableCell className="font-medium">{blade.bladeId}</TableCell>
-                      <TableCell>{blade.machineId || '-'}</TableCell>
-                      <TableCell>
-                        <div className="text-sm">
-                          <div>{blade.szerokosc}×{blade.grubosc}×{blade.dlugosc}mm</div>
-                          <div className="text-gray-500">
-                            {blade.podzialka} | {blade.uzebienie}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <StatusPill status={blade.statusCode} />
-                      </TableCell>
-                      <TableCell>
-                        {blade.lastMovementAt?.toLocaleDateString('pl-PL') || '-'}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Link to={`/app/blade/${blade.bladeId}`}>
-                          <Button variant="outline" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </Link>
-                      </TableCell>
-                    </motion.tr>
-                  ))}
-                  {filteredBlades.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center text-gray-500 py-8">
-                        {searchTerm || selectedMachine || selectedStatus 
-                          ? 'Brak ostrzy spełniających kryteria wyszukiwania'
-                          : 'Brak ostrzy w systemie'
-                        }
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader><CardTitle>Lista pił ({filtered.length})</CardTitle></CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ID Piły</TableHead>
+                <TableHead>Maszyna</TableHead>
+                <TableHead>Specyfikacja</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Ostatni ruch</TableHead>
+                <TableHead>Akcje</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell className="font-medium">{r.blade_code}</TableCell>
+                  <TableCell>{r.machine ?? '—'}</TableCell>
+                  <TableCell>{(r.width_mm ?? '—')}×{(r.thickness_mm ?? '—')}×{(r.length_mm ?? '—')}mm</TableCell>
+                  <TableCell><StatusPill status={(r.status ?? 'c0') as any} /></TableCell>
+                  <TableCell>{r.lastMovementAt ? new Date(r.lastMovementAt).toLocaleString() : '—'}</TableCell>
+                  <TableCell>
+                    <Button size="sm" variant="outline" onClick={() => navigate(`/app/blades/${encodeURIComponent(r.blade_code)}`)}>Podgląd</Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!filtered.length && !loading && (
+                <TableRow><TableCell colSpan={6} className="text-center text-gray-500">Brak danych</TableCell></TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 };
+
+export default MyBlades;
