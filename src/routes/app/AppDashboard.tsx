@@ -1,182 +1,122 @@
-import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
-import { Package, Clock, AlertCircle, QrCode, Plus } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Package, Clock, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Button } from '../../components/ui/button';
-import { StatusPill } from '../../components/common/StatusPill';
+import { PageHeader } from '../../components/common/PageHeader';
 import useAuth from '../../hooks/useAuth';
+import { supabase } from '../../lib/supabase';
+
+type StatTile = { title: string; value: string; icon: any; color: string; bgColor: string };
 
 export const AppDashboard: React.FC = () => {
-  const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { profile } = useAuth();
 
-  const stats = [
-    {
-      title: 'Moje ostrza',
-      value: '5',
-      icon: Package,
-      color: 'text-primary-600',
-      bgColor: 'bg-primary-50',
-    },
-    {
-      title: 'Oczekujące zwroty',
-      value: '2',
-      icon: Clock,
-      color: 'text-warning-600',
-      bgColor: 'bg-warning-50',
-    },
-    {
-      title: 'Przekroczenia',
-      value: '0',
-      icon: AlertCircle,
-      color: 'text-success-600',
-      bgColor: 'bg-success-50',
-    },
-  ];
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<StatTile[]>([
+    { title: 'Moje ostrza', value: '—', icon: Package, color: 'text-primary-600', bgColor: 'bg-primary-50' },
+    { title: 'Oczekujące zwroty', value: '—', icon: Clock, color: 'text-warning-600', bgColor: 'bg-warning-50' },
+    { title: 'Ostrza wymagające uwagi', value: '—', icon: AlertCircle, color: 'text-error-600', bgColor: 'bg-error-50' },
+  ]);
+  const [recent, setRecent] = useState<Array<{ at: Date; op: string; code: string; stateCode: string | null }>>([]);
 
-  const myBlades = [
-    {
-      id: 'BS-001',
-      name: 'Ostrze piły tarczowej #BS-001',
-      model: 'Freud 250mm',
-      statusCode: 'c0',
-      location: 'Trak A',
-    },
-    {
-      id: 'BS-002',
-      name: 'Ostrze piły taśmowej #BS-002',
-      model: 'Bahco 2360mm',
-      statusCode: 'c1',
-      location: 'Trak B',
-    },
-    {
-      id: 'BS-003',
-      name: 'Ostrze piły tarczowej #BS-003',
-      model: 'Freud 300mm',
-      statusCode: 'c13',
-      location: 'Magazyn',
-    },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!profile?.client_id) { setLoading(false); return; }
+
+        // blades of this client
+        const { data: blades, error: bErr } = await supabase
+          .from('blades')
+          .select('id, blade_code, status')
+          .eq('client_id', profile.client_id);
+        if (bErr) throw bErr;
+
+        const ids = (blades ?? []).map(b => b.id);
+        let latest: any[] = [];
+        if (ids.length) {
+          const { data: mv, error: mErr } = await supabase
+            .from('movements')
+            .select('blade_id, created_at, op_code, state_code')
+            .in('blade_id', ids)
+            .order('created_at', { ascending: false })
+            .limit(100);
+          if (mErr) throw mErr;
+          latest = mv ?? [];
+        }
+
+        // stats
+        const total = blades?.length ?? 0;
+        const attention = (blades ?? []).filter(b => (b.status ?? 'c0') !== 'c0').length;
+        const pendingReturns = latest.filter(r => r.op_code === 'PZ').length; // proxy
+
+        const tiles: StatTile[] = [
+          { title: 'Moje ostrza', value: String(total), icon: Package, color: 'text-primary-600', bgColor: 'bg-primary-50' },
+          { title: 'Oczekujące zwroty', value: String(pendingReturns), icon: Clock, color: 'text-warning-600', bgColor: 'bg-warning-50' },
+          { title: 'Ostrza wymagające uwagi', value: String(attention), icon: AlertCircle, color: 'text-error-600', bgColor: 'bg-error-50' },
+        ];
+
+        const byId = new Map((blades ?? []).map(b => [b.id, b.blade_code as string]));
+        const recent6 = latest.slice(0, 6).map((r) => ({
+          at: new Date(r.created_at),
+          op: r.op_code,
+          code: byId.get(r.blade_id) ?? r.blade_id,
+          stateCode: r.state_code ?? null,
+        }));
+
+        if (!cancelled) {
+          setStats(tiles);
+          setRecent(recent6);
+        }
+      } catch (e) {
+        console.error('AppDashboard load error', e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [profile?.client_id]);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">
-          Panel Klienta
-        </h1>
-        <p className="text-gray-600 mt-2">
-          Witaj, {user?.email || 'Użytkownik'}
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader title="Panel Klienta" subtitle="Pulpit" />
 
-      <div className="space-y-8">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {stats.map((stat, index) => {
-            const Icon = stat.icon;
-            return (
-              <motion.div
-                key={stat.title}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-              >
-                <Card className="tap-highlight cursor-pointer hover:shadow-medium transition-shadow">
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">
-                          {stat.title}
-                        </p>
-                        <p className="text-3xl font-bold text-gray-900 mt-2">
-                          {stat.value}
-                        </p>
-                      </div>
-                      <div className={`p-3 rounded-xl ${stat.bgColor}`}>
-                        <Icon className={`h-6 w-6 ${stat.color}`} />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            );
-          })}
-        </div>
-
-        {/* Quick Actions */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle>Szybkie akcje</CardTitle>
+      {/* Stat tiles */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        {stats.map((t) => (
+          <Card key={t.title} className="shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">{t.title}</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Link to="/app/scan">
-                  <Button className="w-full h-auto p-4 flex flex-col items-center space-y-2">
-                    <QrCode className="h-6 w-6" />
-                    <span className="text-sm font-medium">Skanuj ostrze</span>
-                  </Button>
-                </Link>
-                <Link to="/app/blade/new">
-                  <Button variant="outline" className="w-full h-auto p-4 flex flex-col items-center space-y-2">
-                    <Plus className="h-6 w-6" />
-                    <span className="text-sm font-medium">Dodaj ostrze</span>
-                  </Button>
-                </Link>
-                <Link to="/app/blades">
-                  <Button variant="outline" className="w-full h-auto p-4 flex flex-col items-center space-y-2">
-                    <Package className="h-6 w-6" />
-                    <span className="text-sm font-medium">Moje ostrza</span>
-                  </Button>
-                </Link>
+            <CardContent className="flex items-center justify-between">
+              <div className="text-3xl font-semibold">{t.value}</div>
+              <div className={`p-2 rounded-xl ${t.bgColor}`}>
+                <t.icon className={`h-6 w-6 ${t.color}`} />
               </div>
             </CardContent>
           </Card>
-        </motion.div>
-
-        {/* My Blades */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle>Moje ostrza</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {myBlades.map((blade, index) => (
-                  <motion.div
-                    key={blade.id}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.5 + index * 0.1 }}
-                  >
-                    <Link to={`/app/blade/${blade.id}`}>
-                      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer">
-                        <div className="flex-1">
-                          <p className="font-medium">{blade.name}</p>
-                          <p className="text-sm text-gray-600 mt-1">Model: {blade.model}</p>
-                          <p className="text-sm text-gray-500 mt-1">Lokalizacja: {blade.location}</p>
-                        </div>
-                        <StatusPill status={blade.statusCode} />
-                      </div>
-                    </Link>
-                  </motion.div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+        ))}
       </div>
+
+      {/* Recent activity */}
+      <Card>
+        <CardHeader><CardTitle>Ostatnia aktywność</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {!recent.length && !loading && <div className="text-gray-500">Brak aktywności</div>}
+          {recent.map((r, idx) => (
+            <div key={idx} className="flex items-center justify-between">
+              <div className="text-sm text-gray-600">{r.at.toLocaleString()}</div>
+              <div className="text-sm font-medium">{r.op}</div>
+              <div className="text-sm">{r.code}</div>
+              <div className="text-xs rounded-full bg-slate-100 text-slate-700 px-2 py-1">{r.stateCode ?? '—'}</div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
     </div>
   );
 };
+
+export default AppDashboard;
