@@ -1,7 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Package, Activity, TrendingUp, Users, Octagon, Trash2, QrCode, Plus } from 'lucide-react';
+import {
+  Package,
+  Activity,
+  TrendingUp,
+  Users,
+  Octagon,
+  Trash2,
+  QrCode,
+  Plus,
+} from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -31,7 +40,6 @@ export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // live data state
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<Buckets>({
     totalBlades: 0,
@@ -46,7 +54,6 @@ export const AdminDashboard: React.FC = () => {
     Array<Client & { counters: { bladesTotal: number; sharp: number; dull: number; regen: number } }>
   >([]);
 
-  // fetch blades + clients and compute buckets/top10
   useEffect(() => {
     let cancelled = false;
 
@@ -138,7 +145,7 @@ export const AdminDashboard: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-      {/* Page header with actions (unchanged UI) */}
+      {/* Header with actions (restored) */}
       <div className="flex flex-col gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Panel Administratora</h1>
@@ -151,27 +158,30 @@ export const AdminDashboard: React.FC = () => {
             <QrCode className="h-4 w-4" />
             Skanuj ostrze
           </Button>
-          <Button variant="secondary" onClick={() => navigate('/admin/blade/new')} className="gap-2">
+          <Button
+            onClick={() => navigate('/admin/blades/new')}
+            className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
             <Plus className="h-4 w-4" />
             Dodaj piłę
           </Button>
         </div>
       </div>
 
-      {/* Tabs bar (unchanged UI) */}
+      {/* Tabs (full width) */}
       <Tabs defaultValue="dashboard" className="w-full">
-        <TabsList className="w-full justify-start">
-          <TabsTrigger value="dashboard">Pulpit</TabsTrigger>
-          <TabsTrigger value="clients">Klienci</TabsTrigger>
-          <TabsTrigger value="blades">Piły</TabsTrigger>
-          <TabsTrigger value="users">Użytkownicy</TabsTrigger>
-          <TabsTrigger value="reports">Raporty</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="dashboard" className="w-full">Pulpit</TabsTrigger>
+          <TabsTrigger value="clients" className="w-full">Klienci</TabsTrigger>
+          <TabsTrigger value="blades" className="w-full">Piły</TabsTrigger>
+          <TabsTrigger value="users" className="w-full">Użytkownicy</TabsTrigger>
+          <TabsTrigger value="reports" className="w-full">Raporty</TabsTrigger>
         </TabsList>
 
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-          {/* DASHBOARD TAB */}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
+          {/* DASHBOARD */}
           <TabsContent value="dashboard" className="space-y-6">
-            {/* KPI tiles – 6 in one row on xl */}
+            {/* KPI tiles — 6 in one row on xl */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
               {tiles.map((t) => (
                 <Card key={t.title} className="shadow-sm">
@@ -188,7 +198,7 @@ export const AdminDashboard: React.FC = () => {
               ))}
             </div>
 
-            {/* Top clients table – same UI as before */}
+            {/* Top clients table */}
             <Card>
               <CardHeader>
                 <CardTitle>Top 10 klientów według liczby pił</CardTitle>
@@ -231,19 +241,22 @@ export const AdminDashboard: React.FC = () => {
             </Card>
           </TabsContent>
 
-          {/* OTHER TABS (unchanged UI) */}
+          {/* CLIENTS */}
           <TabsContent value="clients" className="space-y-6">
             <AdminClients />
           </TabsContent>
 
+          {/* BLADES */}
           <TabsContent value="blades" className="space-y-6">
             <AdminBlades />
           </TabsContent>
 
+          {/* USERS */}
           <TabsContent value="users" className="space-y-6">
             <AdminUsers />
           </TabsContent>
 
+          {/* REPORTS */}
           <TabsContent value="reports" className="space-y-6">
             <AdminReports />
           </TabsContent>
