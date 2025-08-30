@@ -1,58 +1,144 @@
-import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { QrCode, Download, Printer, Edit, Clock, FileText } from 'lucide-react';
+
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Button } from '../../components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { PageHeader } from '../../components/common/PageHeader';
 import { StatusPill } from '../../components/common/StatusPill';
+
 import { supabase } from '../../lib/supabase';
+import { generateQRPNG, downloadQR, printQRLabel } from '../../lib/qr';
 
-function isUuid(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
-}
+// ────────────────────────────────────────────────────────────────────────────────
+// Types
+// ────────────────────────────────────────────────────────────────────────────────
+type BladeRow = {
+  id: string;
+  blade_code: string;
+  client_id: string | null;
+  width_mm: number | null;
+  thickness_mm: number | null;
+  length_mm: number | null;
+  pitch: string | null;
+  spec: string | null;
+  machine: string | null;
+  status: string | null;
+};
 
+type ClientRow = { id: string; name: string; code2: string | null };
+
+type MovementRow = {
+  id: string;
+  blade_id: string;
+  type: 'scan_in' | 'scan_out' | 'service_in' | 'service_out' | 'ship_in' | 'ship_out';
+  service_ops: string[] | null;
+  note: string | null;
+  created_at: string;
+};
+
+type DocRow = { id: string; doc_number: string; type: 'WZ' | 'PZ'; created_at: string };
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────────────────────────
+const isUUID = (v: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+
+const opLabel = (t: MovementRow['type']) => {
+  switch (t) {
+    case 'scan_in': return 'ST1';
+    case 'scan_out': return 'ST2';
+    case 'service_in': return 'WZ';
+    case 'service_out': return 'PZ';
+    case 'ship_in': return 'MD';
+    case 'ship_out': return 'MAG';
+    default: return t.toUpperCase();
+  }
+};
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Component
+// ────────────────────────────────────────────────────────────────────────────────
 export const BladeDetails: React.FC = () => {
-  const { bladeId = '' } = useParams();
-  const [loading, setLoading] = useState(true);
-  const [blade, setBlade] = useState<any | null>(null);
-  const [movements, setMovements] = useState<any[]>([]);
-  const [docs, setDocs] = useState<any[]>([]);
+  const { id = '' } = useParams();
+  const navigate = useNavigate();
 
+  const [loading, setLoading] = useState(true);
+  const [blade, setBlade] = useState<BladeRow | null>(null);
+  const [client, setClient] = useState<ClientRow | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [movements, setMovements] = useState<MovementRow[]>([]);
+  const [docs, setDocs] = useState<DocRow[]>([]);
+
+  // Load blade, client, movements, docs
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const col = isUuid(bladeId) ? 'id' : 'blade_code';
-        const val = isUuid(bladeId) ? bladeId : decodeURIComponent(bladeId);
-        const { data: b, error: bErr } = await supabase
+        const ident = decodeURIComponent(id);
+        const field = isUUID(ident) ? 'id' : 'blade_code';
+
+        const { data: bladeRow, error: bErr } = await supabase
           .from('blades')
-          .select('id, blade_code, client_id, status, width_mm, thickness_mm, length_mm, machine, created_at, updated_at')
-          .eq(col, val)
+          .select('id, blade_code, client_id, width_mm, thickness_mm, length_mm, pitch, spec, machine, status')
+          .eq(field, ident)
           .maybeSingle();
+
         if (bErr) throw bErr;
-        if (!b) throw new Error('Blade not found');
+        if (!bladeRow) throw new Error('Blade not found');
 
-        if (!cancelled) setBlade(b);
+        let clientRow: ClientRow | null = null;
+        if (bladeRow.client_id) {
+          const { data: cRow, error: cErr } = await supabase
+            .from('clients')
+            .select('id, name, code2')
+            .eq('id', bladeRow.client_id)
+            .maybeSingle();
+          if (cErr) throw cErr;
+          clientRow = cRow ?? null;
+        }
 
-        // last 30 movements
+        // Movements (latest 30)
         const { data: mv, error: mErr } = await supabase
           .from('movements')
-          .select('created_at, op_code, state_code, note')
-          .eq('blade_id', b.id)
+          .select('id, blade_id, type, service_ops, note, created_at')
+          .eq('blade_id', bladeRow.id)
           .order('created_at', { ascending: false })
           .limit(30);
         if (mErr) throw mErr;
 
-        // docs joined through wzpz_items
+        // WZPZ documents containing this blade
         const { data: items, error: iErr } = await supabase
           .from('wzpz_items')
-          .select('doc:wzpz_docs(id, human_id, type, created_at)')
-          .eq('blade_id', b.id)
-          .order('doc(created_at)', { ascending: false });
+          .select('doc_id')
+          .eq('blade_id', bladeRow.id);
         if (iErr) throw iErr;
 
+        let docRows: DocRow[] = [];
+        const docIds = (items ?? []).map((x: any) => x.doc_id);
+        if (docIds.length) {
+          const { data: dRows, error: dErr } = await supabase
+            .from('wzpz_docs')
+            .select('id, doc_number, type, created_at')
+            .in('id', docIds)
+            .order('created_at', { ascending: false });
+          if (dErr) throw dErr;
+          docRows = dRows as DocRow[];
+        }
+
+        // Generate QR image
+        let qr = null;
+        try { qr = await generateQRPNG(bladeRow.blade_code); } catch (_) { /* optional */ }
+
         if (!cancelled) {
+          setBlade(bladeRow);
+          setClient(clientRow);
           setMovements(mv ?? []);
-          setDocs((items ?? []).map((x) => x.doc).filter(Boolean));
+          setDocs(docRows);
+          setQrDataUrl(qr);
         }
       } catch (e) {
         console.error('BladeDetails load error', e);
@@ -62,92 +148,252 @@ export const BladeDetails: React.FC = () => {
     })();
 
     return () => { cancelled = true; };
-  }, [bladeId]);
+  }, [id]);
+
+  const specText = useMemo(() => {
+    if (!blade) return '—×—×—mm';
+    const w = blade.width_mm ?? '—';
+    const t = blade.thickness_mm ?? '—';
+    const l = blade.length_mm ?? '—';
+    return `${w}×${t}×${l}mm`;
+  }, [blade]);
+
+  const title = useMemo(() => {
+    if (!blade) return 'Piła';
+    const c = client ? ` (${client.code2 ?? '—'})` : '';
+    return `Piła ${blade.blade_code}${client ? '' : ''}`;
+  }, [blade, client]);
+
+  const handleEdit = () => {
+    if (blade) navigate(`/admin/blade/${encodeURIComponent(blade.blade_code)}/edit`);
+  };
+
+  const handleDownloadQR = async () => {
+    if (blade) {
+      try { await downloadQR(blade.blade_code); } catch (_) {}
+    }
+  };
+
+  const handlePrintLabel = async () => {
+    if (blade) {
+      try { await printQRLabel(blade.blade_code); } catch (_) {}
+    }
+  };
 
   return (
-    <div className="space-y-6">
-      <PageHeader title={`Piła ${decodeURIComponent(bladeId)}`} showBack />
+    <div className="space-y-6 pb-20 md:pb-6">
+      {/* Header with actions */}
+      <PageHeader
+        title={title}
+        subtitle={client ? `${client.name} (${client.code2 ?? '—'})` : undefined}
+        showBack
+        actions={
+          <div className="flex space-x-2">
+            <Button variant="outline" size="sm" onClick={handleEdit}>
+              <Edit className="h-4 w-4 mr-2" />
+              Edytuj
+            </Button>
+            <Button variant="outline" size="sm" onClick={handlePrintLabel}>
+              <Printer className="h-4 w-4 mr-2" />
+              Drukuj
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleDownloadQR}>
+              <Download className="h-4 w-4 mr-2" />
+              Pobierz QR
+            </Button>
+          </div>
+        }
+      />
 
-      {/* Blade summary */}
-      <Card>
-        <CardHeader><CardTitle>Informacje o pile</CardTitle></CardHeader>
-        <CardContent className="grid md:grid-cols-2 gap-4">
-          <div>
-            <div className="text-sm text-gray-600">ID Piły</div>
-            <div className="font-medium">{blade?.blade_code ?? '—'}</div>
-          </div>
-          <div>
-            <div className="text-sm text-gray-600">Status</div>
-            <div className="mt-1"><StatusPill status={(blade?.status ?? 'c0') as any} /></div>
-          </div>
-          <div>
-            <div className="text-sm text-gray-600">Specyfikacja</div>
-            <div className="text-sm">{(blade?.width_mm ?? '—')}×{(blade?.thickness_mm ?? '—')}×{(blade?.length_mm ?? '—')}mm</div>
-          </div>
-          <div>
-            <div className="text-sm text-gray-600">Maszyna</div>
-            <div className="text-sm">{blade?.machine ?? '—'}</div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Top two-column section: QR + Info */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* QR card (left column, fixed width feel by using 1/3) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <QrCode className="h-5 w-5 text-primary-600" />
+                <span>Kod QR</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center">
+              <div className="w-full flex items-center justify-center">
+                {qrDataUrl ? (
+                  <img src={qrDataUrl} alt="QR" className="w-56 h-56" />
+                ) : (
+                  <div className="w-56 h-56 rounded-xl bg-gray-100 flex items-center justify-center text-gray-500">
+                    QR
+                  </div>
+                )}
+              </div>
 
-      {/* History */}
-      <Card>
-        <CardHeader><CardTitle>Historia ruchów (ostatnie 30)</CardTitle></CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Data i czas</TableHead>
-                <TableHead>Operacja</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Uwagi</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {movements.map((m, idx) => (
-                <TableRow key={idx}>
-                  <TableCell>{new Date(m.created_at).toLocaleString()}</TableCell>
-                  <TableCell><span className="rounded-full bg-blue-50 text-blue-700 px-2 py-1 text-xs font-medium">{m.op_code}</span></TableCell>
-                  <TableCell><StatusPill status={(m.state_code ?? 'c0') as any} /></TableCell>
-                  <TableCell>{m.note ?? '—'}</TableCell>
+              <div className="w-full mt-4 space-y-2">
+                <Button className="w-full" variant="outline" onClick={handleDownloadQR}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Pobierz PNG
+                </Button>
+                <Button className="w-full" onClick={handlePrintLabel}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Drukuj etykietę (A7)
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Info card (right 2/3) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="lg:col-span-2"
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <FileText className="h-5 w-5 text-primary-600" />
+                <span>Informacje o pile</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <div className="text-sm text-gray-600">ID Piły</div>
+                  <div className="font-medium">{blade?.blade_code ?? '—'}</div>
+                </div>
+
+                <div>
+                  <div className="text-sm text-gray-600">Status</div>
+                  <div className="mt-1">
+                    <StatusPill status={(blade?.status ?? 'c0') as any} />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-sm text-gray-600">Klient</div>
+                  <div className="font-medium">{client ? `${client.name} (${client.code2 ?? '—'})` : '—'}</div>
+                </div>
+
+                <div>
+                  <div className="text-sm text-gray-600">Maszyna</div>
+                  <div className="font-medium">{blade?.machine ?? '—'}</div>
+                </div>
+
+                <div className="md:col-span-2">
+                  <div className="text-sm text-gray-600">Specyfikacja</div>
+                  <div className="font-medium">{specText}</div>
+                  {!!blade?.pitch && <div className="text-sm text-gray-600">Podziałka: <span className="font-medium">{blade.pitch}</span></div>}
+                  {!!blade?.spec && <div className="text-sm text-gray-600">Uzębienie: <span className="font-medium">{blade.spec}</span></div>}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+
+      {/* Movement history */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Clock className="h-5 w-5 text-primary-600" />
+              <span>Historia ruchów (ostatnie 30)</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Data i czas</TableHead>
+                  <TableHead>Operacja</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Uwagi</TableHead>
                 </TableRow>
-              ))}
-              {!movements.length && !loading && (
-                <TableRow><TableCell colSpan={4} className="text-center text-gray-500">Brak ruchów</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              </TableHeader>
+              <TableBody>
+                {movements.length ? movements.map((m) => (
+                  <TableRow key={m.id}>
+                    <TableCell>{new Date(m.created_at).toLocaleString()}</TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-medium">
+                        {opLabel(m.type)}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      {/* We don’t store state per movement yet; show blade state */}
+                      <StatusPill status={(blade?.status ?? 'c0') as any} />
+                    </TableCell>
+                    <TableCell>{m.note ?? '—'}</TableCell>
+                  </TableRow>
+                )) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-gray-500">Brak ruchów</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </motion.div>
 
-      {/* Docs */}
-      <Card>
-        <CardHeader><CardTitle>Dokumenty WZPZ</CardTitle></CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Numer dokumentu</TableHead>
-                <TableHead>Typ</TableHead>
-                <TableHead>Data utworzenia</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {docs.map((d:any) => (
-                <TableRow key={d.id}>
-                  <TableCell>{d.human_id}</TableCell>
-                  <TableCell>{d.type === 'WZ' ? 'Wydanie zewnętrzne' : 'Przyjęcie zewnętrzne'}</TableCell>
-                  <TableCell>{new Date(d.created_at).toLocaleString()}</TableCell>
+      {/* WZPZ documents */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <FileText className="h-5 w-5 text-primary-600" />
+              <span>Dokumenty WZPZ</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Numer dokumentu</TableHead>
+                  <TableHead>Typ</TableHead>
+                  <TableHead>Data utworzenia</TableHead>
+                  <TableHead className="text-right">Akcje</TableHead>
                 </TableRow>
-              ))}
-              {!docs.length && !loading && (
-                <TableRow><TableCell colSpan={3} className="text-center text-gray-500">Brak dokumentów</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              </TableHeader>
+              <TableBody>
+                {docs.length ? docs.map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell>{d.doc_number}</TableCell>
+                    <TableCell>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        d.type === 'WZ' ? 'bg-emerald-50 text-emerald-700' : 'bg-cyan-50 text-cyan-700'
+                      }`}>
+                        {d.type === 'WZ' ? 'Wydanie zewnętrzne' : 'Przyjęcie zewnętrzne'}
+                      </span>
+                    </TableCell>
+                    <TableCell>{new Date(d.created_at).toLocaleString()}</TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="outline">
+                        Pobierz PDF
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                )) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-gray-500">Brak dokumentów WZPZ</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </motion.div>
     </div>
   );
 };
