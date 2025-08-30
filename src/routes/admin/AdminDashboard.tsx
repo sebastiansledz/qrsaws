@@ -145,8 +145,13 @@ export const AdminDashboard: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-      {/* Header with actions (restored) */}
-      <div className="flex flex-col gap-4">
+      {/* Header with actions (animated like Reports) */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25 }}
+        className="flex flex-col gap-4"
+      >
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Panel Administratora</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -159,18 +164,18 @@ export const AdminDashboard: React.FC = () => {
             Skanuj ostrze
           </Button>
           <Button
-            onClick={() => navigate('/admin/blades/new')}
+            onClick={() => navigate('/admin/blade/new')}
             className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
           >
             <Plus className="h-4 w-4" />
             Dodaj piłę
           </Button>
         </div>
-      </div>
+      </motion.div>
 
-      {/* Tabs (full width) */}
+      {/* Tabs (full width + restored spacing under tabs) */}
       <Tabs defaultValue="dashboard" className="w-full">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-5 mb-6">
           <TabsTrigger value="dashboard" className="w-full">Pulpit</TabsTrigger>
           <TabsTrigger value="clients" className="w-full">Klienci</TabsTrigger>
           <TabsTrigger value="blades" className="w-full">Piły</TabsTrigger>
@@ -180,84 +185,93 @@ export const AdminDashboard: React.FC = () => {
 
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
           {/* DASHBOARD */}
-          <TabsContent value="dashboard" className="space-y-6">
-            {/* KPI tiles — 6 in one row on xl */}
+          <TabsContent value="dashboard" className="mt-6 space-y-6">
+            {/* KPI tiles with stagger like Reports */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-              {tiles.map((t) => (
-                <Card key={t.title} className="shadow-sm">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">{t.title}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex items-center justify-between">
-                    <div className="text-3xl font-semibold">{loading ? '—' : t.value}</div>
-                    <div className={`p-2 rounded-xl ${t.bg}`}>
-                      <t.icon className={`h-6 w-6 ${t.color}`} />
-                    </div>
-                  </CardContent>
-                </Card>
+              {tiles.map((t, i) => (
+                <motion.div
+                  key={t.title}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.06 }}
+                >
+                  <Card className="shadow-sm">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-gray-600">{t.title}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex items-center justify-between">
+                      <div className="text-3xl font-semibold">{loading ? '—' : t.value}</div>
+                      <div className={`p-2 rounded-xl ${t.bg}`}>
+                        <t.icon className={`h-6 w-6 ${t.color}`} />
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
               ))}
             </div>
 
-            {/* Top clients table */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Top 10 klientów według liczby pił</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Klient</TableHead>
-                      <TableHead>Kod</TableHead>
-                      <TableHead>NIP</TableHead>
-                      <TableHead className="text-right">Wszystkie piły</TableHead>
-                      <TableHead className="text-right">Ostre</TableHead>
-                      <TableHead className="text-right">Tępe</TableHead>
-                      <TableHead className="text-right">Do regeneracji</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {topClients.map((c) => (
-                      <TableRow key={c.id}>
-                        <TableCell>{c.name}</TableCell>
-                        <TableCell>{c.code2 || '—'}</TableCell>
-                        <TableCell>{c.nip || '—'}</TableCell>
-                        <TableCell className="text-right">{c.counters.bladesTotal}</TableCell>
-                        <TableCell className="text-right">{c.counters.sharp}</TableCell>
-                        <TableCell className="text-right">{c.counters.dull}</TableCell>
-                        <TableCell className="text-right">{c.counters.regen}</TableCell>
-                      </TableRow>
-                    ))}
-                    {!topClients.length && !loading && (
+            {/* Top clients table (animated) */}
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Top 10 klientów według liczby pił</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-gray-500">
-                          Brak danych
-                        </TableCell>
+                        <TableHead>Klient</TableHead>
+                        <TableHead>Kod</TableHead>
+                        <TableHead>NIP</TableHead>
+                        <TableHead className="text-right">Wszystkie piły</TableHead>
+                        <TableHead className="text-right">Ostre</TableHead>
+                        <TableHead className="text-right">Tępe</TableHead>
+                        <TableHead className="text-right">Do regeneracji</TableHead>
                       </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                    </TableHeader>
+                    <TableBody>
+                      {topClients.map((c) => (
+                        <TableRow key={c.id}>
+                          <TableCell>{c.name}</TableCell>
+                          <TableCell>{c.code2 || '—'}</TableCell>
+                          <TableCell>{c.nip || '—'}</TableCell>
+                          <TableCell className="text-right">{c.counters.bladesTotal}</TableCell>
+                          <TableCell className="text-right">{c.counters.sharp}</TableCell>
+                          <TableCell className="text-right">{c.counters.dull}</TableCell>
+                          <TableCell className="text-right">{c.counters.regen}</TableCell>
+                        </TableRow>
+                      ))}
+                      {!topClients.length && !loading && (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-gray-500">
+                            Brak danych
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </motion.div>
           </TabsContent>
 
           {/* CLIENTS */}
-          <TabsContent value="clients" className="space-y-6">
+          <TabsContent value="clients" className="mt-6 space-y-6">
             <AdminClients />
           </TabsContent>
 
           {/* BLADES */}
-          <TabsContent value="blades" className="space-y-6">
+          <TabsContent value="blades" className="mt-6 space-y-6">
             <AdminBlades />
           </TabsContent>
 
           {/* USERS */}
-          <TabsContent value="users" className="space-y-6">
+          <TabsContent value="users" className="mt-6 space-y-6">
             <AdminUsers />
           </TabsContent>
 
           {/* REPORTS */}
-          <TabsContent value="reports" className="space-y-6">
+          <TabsContent value="reports" className="mt-6 space-y-6">
             <AdminReports />
           </TabsContent>
         </motion.div>
