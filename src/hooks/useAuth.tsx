@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef, createContext, useContext } from 'react';
 import { supabase } from '../lib/supabase';
 
 type Profile = {
@@ -6,103 +6,112 @@ type Profile = {
   display_name: string | null;
   email: string | null;
   is_admin?: boolean | null;
+  role?: 'admin' | 'client' | 'worker' | null;
+  client_id?: string | null;
 };
 
-export function useAuth() {
-  const [user, setUser] = useState<any>(null);
+type AuthContextType = {
+  user: any | null;
+  profile: Profile | null;
+  isAdmin: boolean;
+  loading: boolean;
+  signOut: () => Promise<void>;
+};
+
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  profile: null,
+  isAdmin: false,
+  loading: true,
+  signOut: async () => {},
+});
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<any | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
-  const [loading, setLoading] = useState<boolean>(true);
-
-  async function loadUserAndProfile() {
-    try {
-      const { data: ures } = await supabase.auth.getUser();
-      const u = ures?.user ?? null;
-      setUser(u);
-
-      if (!u) {
-        setProfile(null);
-        setIsAdmin(false);
-        return;
-      }
-
-      // Try app_roles first (supports either text "role" or boolean "is_admin")
-      let admin = false;
-
-      // 1) boolean flavor
-      const { data: rolesBool, error: rolesBoolErr } = await supabase
-        .from('app_roles')
-        .select('is_admin')
-        .eq('user_id', u.id)
-        .limit(1)
-        .maybeSingle();
-
-      if (!rolesBoolErr && rolesBool && (rolesBool as any).is_admin === true) {
-        admin = true;
-      } else {
-        // 2) text flavor
-        const { data: rolesText } = await supabase
-          .from('app_roles')
-          .select('role')
-          .eq('user_id', u.id);
-
-        if (Array.isArray(rolesText) && rolesText.some(r => (r as any).role === 'admin')) {
-          admin = true;
-        }
-      }
-
-      setIsAdmin(admin);
-
-      // Load user_profiles (non-fatal if missing)
-      const { data: prof, error: profErr } = await supabase
-        .from('user_profiles')
-        .select('user_id, display_name, email, is_admin')
-        .eq('user_id', u.id)
-        .maybeSingle();
-
-      if (!profErr && prof) setProfile(prof as Profile);
-    } catch (e) {
-      // Never leave loading stuck
-      console.error('useAuth load error:', e);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const [loading, setLoading] = useState(true);
+  const subRef = useRef<any>(null);
 
   useEffect(() => {
     let cancelled = false;
-    let t: any;
 
-    // Initial load
-    setLoading(true);
+    async function loadUserAndProfile() {
+      try {
+        const { data: session } = await supabase.auth.getSession();
+        const currentUser = session?.session?.user ?? null;
+        if (!currentUser) {
+          if (!cancelled) {
+            setUser(null);
+            setProfile(null);
+            setIsAdmin(false);
+            setLoading(false);
+          }
+          return;
+        }
+        setUser(currentUser);
+
+        const { data: prof, error } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (!cancelled) {
+          const typed: Profile | null = prof
+            ? {
+                user_id: prof.user_id,
+                display_name: prof.display_name ?? null,
+                email: prof.email ?? currentUser.email ?? null,
+                is_admin: prof.is_admin ?? null,
+                role: (prof.role as Profile['role']) ?? null,
+                client_id: (prof.client_id as string | null) ?? null,
+              }
+            : null;
+
+          setProfile(typed);
+          setIsAdmin(!!typed?.is_admin || typed?.role === 'admin');
+          setLoading(false);
+        }
+      } catch (e) {
+        console.error('loadUserAndProfile error', e);
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    // initial
     loadUserAndProfile();
 
-    // Subscribe to auth changes (non-disruptive)
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, _session) => {
-      // Do NOT setLoading(true) here — keep UI steady
-      if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setProfile(null);
-        setIsAdmin(false);
-        return;
-      }
-
-      if (event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
-        setUser(session?.user ?? null);
-        // Light refresh of profile/admin flag (no global loading)
-        clearTimeout(t);
-        t = setTimeout(() => loadUserAndProfile(), 100);
-      }
+    // subscribe to auth state
+    subRef.current = supabase.auth.onAuthStateChange((_event, _session) => {
+      loadUserAndProfile();
     });
 
     return () => {
       cancelled = true;
-      clearTimeout(t);
-      sub?.subscription?.unsubscribe?.();
+      try {
+        subRef.current?.data?.subscription?.unsubscribe?.();
+      } catch {}
     };
   }, []);
 
-  return useMemo(() => ({ user, profile, isAdmin, loading }), [user, profile, isAdmin, loading]);
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+    setIsAdmin(false);
+  }, []);
+
+  const value: AuthContextType = useMemo(
+    () => ({ user, profile, isAdmin, loading, signOut }),
+    [user, profile, isAdmin, loading, signOut]
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export default useAuth;
+export default function useAuth() {
+  return useContext(AuthContext);
+}
