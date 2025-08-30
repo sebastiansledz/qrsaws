@@ -8,13 +8,9 @@ import { Button } from '../../components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { PageHeader } from '../../components/common/PageHeader';
 import { StatusPill } from '../../components/common/StatusPill';
-
 import { supabase } from '../../lib/supabase';
 import { generateQRPNG, downloadQR, printQRLabel } from '../../lib/qr';
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Types
-// ────────────────────────────────────────────────────────────────────────────────
 type BladeRow = {
   id: string;
   blade_code: string;
@@ -39,11 +35,8 @@ type MovementRow = {
   created_at: string;
 };
 
-type DocRow = { id: string; doc_number: string; type: 'WZ' | 'PZ'; created_at: string };
+type DocRow = { id: string; human_id: string; type: 'WZ' | 'PZ'; created_at: string };
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ────────────────────────────────────────────────────────────────────────────────
 const isUUID = (v: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 
@@ -59,9 +52,6 @@ const opLabel = (t: MovementRow['type']) => {
   }
 };
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Component
-// ────────────────────────────────────────────────────────────────────────────────
 export const BladeDetails: React.FC = () => {
   const { id = '' } = useParams();
   const navigate = useNavigate();
@@ -73,72 +63,87 @@ export const BladeDetails: React.FC = () => {
   const [movements, setMovements] = useState<MovementRow[]>([]);
   const [docs, setDocs] = useState<DocRow[]>([]);
 
-  // Load blade, client, movements, docs
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      setLoading(true);
       try {
         const ident = decodeURIComponent(id);
         const field = isUUID(ident) ? 'id' : 'blade_code';
 
+        // 1) Blade (required)
         const { data: bladeRow, error: bErr } = await supabase
           .from('blades')
           .select('id, blade_code, client_id, width_mm, thickness_mm, length_mm, pitch, spec, machine, status')
           .eq(field, ident)
           .maybeSingle();
-
         if (bErr) throw bErr;
         if (!bladeRow) throw new Error('Blade not found');
+        if (!cancelled) setBlade(bladeRow);
 
-        let clientRow: ClientRow | null = null;
+        // 2) Client (optional)
         if (bladeRow.client_id) {
-          const { data: cRow, error: cErr } = await supabase
-            .from('clients')
-            .select('id, name, code2')
-            .eq('id', bladeRow.client_id)
-            .maybeSingle();
-          if (cErr) throw cErr;
-          clientRow = cRow ?? null;
+          try {
+            const { data: cRow, error: cErr } = await supabase
+              .from('clients')
+              .select('id, name, code2')
+              .eq('id', bladeRow.client_id)
+              .maybeSingle();
+            if (cErr) throw cErr;
+            if (!cancelled) setClient(cRow ?? null);
+          } catch (e) {
+            console.error('BladeDetails client error', e);
+          }
+        } else {
+          if (!cancelled) setClient(null);
         }
 
-        // Movements (latest 30)
-        const { data: mv, error: mErr } = await supabase
-          .from('movements')
-          .select('id, blade_id, type, service_ops, note, created_at')
-          .eq('blade_id', bladeRow.id)
-          .order('created_at', { ascending: false })
-          .limit(30);
-        if (mErr) throw mErr;
-
-        // WZPZ documents containing this blade
-        const { data: items, error: iErr } = await supabase
-          .from('wzpz_items')
-          .select('doc_id')
-          .eq('blade_id', bladeRow.id);
-        if (iErr) throw iErr;
-
-        let docRows: DocRow[] = [];
-        const docIds = (items ?? []).map((x: any) => x.doc_id);
-        if (docIds.length) {
-          const { data: dRows, error: dErr } = await supabase
-            .from('wzpz_docs')
-            .select('id, doc_number, type, created_at')
-            .in('id', docIds)
-            .order('created_at', { ascending: false });
-          if (dErr) throw dErr;
-          docRows = dRows as DocRow[];
+        // 3) QR (best-effort)
+        try {
+          const qr = await generateQRPNG(bladeRow.blade_code);
+          if (!cancelled) setQrDataUrl(qr);
+        } catch (e) {
+          console.error('QR generate error', e);
         }
 
-        // Generate QR image
-        let qr = null;
-        try { qr = await generateQRPNG(bladeRow.blade_code); } catch (_) { /* optional */ }
+        // 4) Movements (best-effort)
+        try {
+          const { data: mv, error: mErr } = await supabase
+            .from('movements')
+            .select('id, blade_id, type, service_ops, note, created_at')
+            .eq('blade_id', bladeRow.id)
+            .order('created_at', { ascending: false })
+            .limit(30);
+          if (mErr) throw mErr;
+          if (!cancelled) setMovements(mv ?? []);
+        } catch (e) {
+          console.error('Movements load error', e);
+          if (!cancelled) setMovements([]);
+        }
 
-        if (!cancelled) {
-          setBlade(bladeRow);
-          setClient(clientRow);
-          setMovements(mv ?? []);
-          setDocs(docRows);
-          setQrDataUrl(qr);
+        // 5) WZPZ docs (best-effort, uses human_id per schema)
+        try {
+          const { data: items, error: iErr } = await supabase
+            .from('wzpz_items')
+            .select('doc_id')
+            .eq('blade_id', bladeRow.id);
+          if (iErr) throw iErr;
+
+          const docIds = (items ?? []).map((x: any) => x.doc_id);
+          if (docIds.length) {
+            const { data: dRows, error: dErr } = await supabase
+              .from('wzpz_docs')
+              .select('id, human_id, type, created_at')
+              .in('id', docIds)
+              .order('created_at', { ascending: false });
+            if (dErr) throw dErr;
+            if (!cancelled) setDocs((dRows ?? []) as DocRow[]);
+          } else {
+            if (!cancelled) setDocs([]);
+          }
+        } catch (e) {
+          console.error('WZPZ docs load error', e);
+          if (!cancelled) setDocs([]);
         }
       } catch (e) {
         console.error('BladeDetails load error', e);
@@ -158,34 +163,27 @@ export const BladeDetails: React.FC = () => {
     return `${w}×${t}×${l}mm`;
   }, [blade]);
 
-  const title = useMemo(() => {
+  const headerTitle = useMemo(() => {
     if (!blade) return 'Piła';
-    const c = client ? ` (${client.code2 ?? '—'})` : '';
-    return `Piła ${blade.blade_code}${client ? '' : ''}`;
-  }, [blade, client]);
+    return `Piła ${blade.blade_code}`;
+  }, [blade]);
+
+  const headerSubtitle = useMemo(() => {
+    if (!client) return undefined;
+    return `${client.name} (${client.code2 ?? '—'})`;
+  }, [client]);
 
   const handleEdit = () => {
     if (blade) navigate(`/admin/blade/${encodeURIComponent(blade.blade_code)}/edit`);
   };
-
-  const handleDownloadQR = async () => {
-    if (blade) {
-      try { await downloadQR(blade.blade_code); } catch (_) {}
-    }
-  };
-
-  const handlePrintLabel = async () => {
-    if (blade) {
-      try { await printQRLabel(blade.blade_code); } catch (_) {}
-    }
-  };
+  const handleDownloadQR = async () => { if (blade) { try { await downloadQR(blade.blade_code); } catch {} } };
+  const handlePrintLabel = async () => { if (blade) { try { await printQRLabel(blade.blade_code); } catch {} } };
 
   return (
     <div className="space-y-6 pb-20 md:pb-6">
-      {/* Header with actions */}
       <PageHeader
-        title={title}
-        subtitle={client ? `${client.name} (${client.code2 ?? '—'})` : undefined}
+        title={headerTitle}
+        subtitle={headerSubtitle}
         showBack
         actions={
           <div className="flex space-x-2">
@@ -205,13 +203,9 @@ export const BladeDetails: React.FC = () => {
         }
       />
 
-      {/* Top two-column section: QR + Info */}
+      {/* Top: QR (left) + Info (right) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* QR card (left column, fixed width feel by using 1/3) */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <Card className="h-full">
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
@@ -229,7 +223,6 @@ export const BladeDetails: React.FC = () => {
                   </div>
                 )}
               </div>
-
               <div className="w-full mt-4 space-y-2">
                 <Button className="w-full" variant="outline" onClick={handleDownloadQR}>
                   <Download className="h-4 w-4 mr-2" />
@@ -244,7 +237,6 @@ export const BladeDetails: React.FC = () => {
           </Card>
         </motion.div>
 
-        {/* Info card (right 2/3) */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -264,29 +256,33 @@ export const BladeDetails: React.FC = () => {
                   <div className="text-sm text-gray-600">ID Piły</div>
                   <div className="font-medium">{blade?.blade_code ?? '—'}</div>
                 </div>
-
                 <div>
                   <div className="text-sm text-gray-600">Status</div>
                   <div className="mt-1">
                     <StatusPill status={(blade?.status ?? 'c0') as any} />
                   </div>
                 </div>
-
                 <div>
                   <div className="text-sm text-gray-600">Klient</div>
                   <div className="font-medium">{client ? `${client.name} (${client.code2 ?? '—'})` : '—'}</div>
                 </div>
-
                 <div>
                   <div className="text-sm text-gray-600">Maszyna</div>
                   <div className="font-medium">{blade?.machine ?? '—'}</div>
                 </div>
-
                 <div className="md:col-span-2">
                   <div className="text-sm text-gray-600">Specyfikacja</div>
                   <div className="font-medium">{specText}</div>
-                  {!!blade?.pitch && <div className="text-sm text-gray-600">Podziałka: <span className="font-medium">{blade.pitch}</span></div>}
-                  {!!blade?.spec && <div className="text-sm text-gray-600">Uzębienie: <span className="font-medium">{blade.spec}</span></div>}
+                  {!!blade?.pitch && (
+                    <div className="text-sm text-gray-600">
+                      Podziałka: <span className="font-medium">{blade.pitch}</span>
+                    </div>
+                  )}
+                  {!!blade?.spec && (
+                    <div className="text-sm text-gray-600">
+                      Uzębienie: <span className="font-medium">{blade.spec}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -294,12 +290,8 @@ export const BladeDetails: React.FC = () => {
         </motion.div>
       </div>
 
-      {/* Movement history */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-      >
+      {/* Movements */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
@@ -318,21 +310,20 @@ export const BladeDetails: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {movements.length ? movements.map((m) => (
-                  <TableRow key={m.id}>
-                    <TableCell>{new Date(m.created_at).toLocaleString()}</TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-medium">
-                        {opLabel(m.type)}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {/* We don’t store state per movement yet; show blade state */}
-                      <StatusPill status={(blade?.status ?? 'c0') as any} />
-                    </TableCell>
-                    <TableCell>{m.note ?? '—'}</TableCell>
-                  </TableRow>
-                )) : (
+                {movements.length ? (
+                  movements.map((m) => (
+                    <TableRow key={m.id}>
+                      <TableCell>{new Date(m.created_at).toLocaleString()}</TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-medium">
+                          {opLabel(m.type)}
+                        </span>
+                      </TableCell>
+                      <TableCell><StatusPill status={(blade?.status ?? 'c0') as any} /></TableCell>
+                      <TableCell>{m.note ?? '—'}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
                   <TableRow>
                     <TableCell colSpan={4} className="text-center text-gray-500">Brak ruchów</TableCell>
                   </TableRow>
@@ -343,12 +334,8 @@ export const BladeDetails: React.FC = () => {
         </Card>
       </motion.div>
 
-      {/* WZPZ documents */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15 }}
-      >
+      {/* WZPZ documents (uses human_id) */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
@@ -367,24 +354,26 @@ export const BladeDetails: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {docs.length ? docs.map((d) => (
-                  <TableRow key={d.id}>
-                    <TableCell>{d.doc_number}</TableCell>
-                    <TableCell>
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        d.type === 'WZ' ? 'bg-emerald-50 text-emerald-700' : 'bg-cyan-50 text-cyan-700'
-                      }`}>
-                        {d.type === 'WZ' ? 'Wydanie zewnętrzne' : 'Przyjęcie zewnętrzne'}
-                      </span>
-                    </TableCell>
-                    <TableCell>{new Date(d.created_at).toLocaleString()}</TableCell>
-                    <TableCell className="text-right">
-                      <Button size="sm" variant="outline">
-                        Pobierz PDF
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                )) : (
+                {docs.length ? (
+                  docs.map((d) => (
+                    <TableRow key={d.id}>
+                      <TableCell>{d.human_id}</TableCell>
+                      <TableCell>
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                            d.type === 'WZ' ? 'bg-emerald-50 text-emerald-700' : 'bg-cyan-50 text-cyan-700'
+                          }`}
+                        >
+                          {d.type === 'WZ' ? 'Wydanie zewnętrzne' : 'Przyjęcie zewnętrzne'}
+                        </span>
+                      </TableCell>
+                      <TableCell>{new Date(d.created_at).toLocaleString()}</TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" variant="outline">Pobierz PDF</Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
                   <TableRow>
                     <TableCell colSpan={4} className="text-center text-gray-500">Brak dokumentów WZPZ</TableCell>
                   </TableRow>
