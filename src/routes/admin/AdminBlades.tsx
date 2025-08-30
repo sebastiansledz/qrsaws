@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Plus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Button } from '../../components/ui/button';
-import { PageHeader } from '../../components/common/PageHeader';
 import { StatusPill } from '../../components/common/StatusPill';
 import { supabase } from '../../lib/supabase';
 
@@ -97,7 +97,17 @@ export const AdminBlades: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Panel Administratora" subtitle="Piły" showBack={false} />
+      {/* Restored header like Clients page */}
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-900">Zarządzanie piłami</h2>
+        <Button
+          onClick={() => navigate('/admin/blades/new')}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Dodaj piłę
+        </Button>
+      </div>
 
       <Card>
         <CardHeader>
@@ -155,8 +165,26 @@ export const AdminBlades: React.FC = () => {
                   <TableCell><StatusPill status={(r.status ?? 'c0') as any} /></TableCell>
                   <TableCell>{r.lastMovementAt ? new Date(r.lastMovementAt).toLocaleString() : '—'}</TableCell>
                   <TableCell className="space-x-2">
-                    <Button size="sm" variant="outline" onClick={() => navigate(`/admin/blades/${encodeURIComponent(r.blade_code)}`)}>Podgląd</Button>
-                    <Button size="sm" variant="outline" onClick={() => navigate(`/admin/blades/${encodeURIComponent(r.blade_code)}/edit`)}>Edytuj</Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.preventDefault(); e.stopPropagation();
+                        navigate(`/admin/blades/${encodeURIComponent(r.blade_code)}`);
+                      }}
+                    >
+                      Podgląd
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.preventDefault(); e.stopPropagation();
+                        navigate(`/admin/blades/${encodeURIComponent(r.blade_code)}/edit`);
+                      }}
+                    >
+                      Edytuj
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
