@@ -151,14 +151,18 @@ export const AdminClients: React.FC = () => {
 
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-gray-900">Zarządzanie klientami</h2>
-        <Button onClick={handleAddClient}>
-          <Plus className="h-4 w-4 mr-2" />
-          Dodaj klienta
-        </Button>
-      </div>
+<motion.div
+  initial={{ opacity: 0, y: 20 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{ duration: 0.25 }}
+  className="flex justify-between items-center"
+>
+  <h2 className="text-2xl font-bold text-gray-900">Zarządzanie klientami</h2>
+  <Button onClick={handleAddClient}>
+    <Plus className="h-4 w-4 mr-2" />
+    Dodaj klienta
+  </Button>
+</motion.div>
 
       <Card>
         <CardHeader>
