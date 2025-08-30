@@ -71,7 +71,6 @@ export const BladeDetails: React.FC = () => {
         const ident = decodeURIComponent(id);
         const field = isUUID(ident) ? 'id' : 'blade_code';
 
-        // 1) Blade
         const { data: bladeRow, error: bErr } = await supabase
           .from('blades')
           .select('id, blade_code, client_id, width_mm, thickness_mm, length_mm, pitch, spec, machine, status')
@@ -81,7 +80,6 @@ export const BladeDetails: React.FC = () => {
         if (!bladeRow) throw new Error('Blade not found');
         if (!cancelled) setBlade(bladeRow);
 
-        // 2) Client (optional)
         if (bladeRow.client_id) {
           try {
             const { data: cRow, error: cErr } = await supabase
@@ -98,16 +96,13 @@ export const BladeDetails: React.FC = () => {
           if (!cancelled) setClient(null);
         }
 
-        // 3) QR (best-effort)
         try {
           const qr = await generateQRPNG(bladeRow.blade_code);
-          // accept data URL or blob URL
           if (!cancelled) setQrDataUrl(typeof qr === 'string' ? qr : String(qr));
         } catch (e) {
           console.error('QR generate error', e);
         }
 
-        // 4) Movements (best-effort)
         try {
           const { data: mv, error: mErr } = await supabase
             .from('movements')
@@ -122,7 +117,6 @@ export const BladeDetails: React.FC = () => {
           if (!cancelled) setMovements([]);
         }
 
-        // 5) WZPZ docs (best-effort) — uses human_id per schema you shared
         try {
           const { data: items, error: iErr } = await supabase
             .from('wzpz_items')
@@ -155,7 +149,6 @@ export const BladeDetails: React.FC = () => {
     return () => { cancelled = true; };
   }, [id]);
 
-  // split spec blocks like in the original UI
   const width = blade?.width_mm ?? '—';
   const thick = blade?.thickness_mm ?? '—';
   const length = blade?.length_mm ?? '—';
@@ -171,8 +164,6 @@ export const BladeDetails: React.FC = () => {
   const handleDownloadQR = async () => {
     if (!blade) return;
     const filename = `${blade.blade_code}.png`;
-
-    // Prefer the rendered QR (guaranteed PNG data URL from generateQRPNG)
     if (qrDataUrl) {
       try {
         const a = document.createElement('a');
@@ -186,18 +177,14 @@ export const BladeDetails: React.FC = () => {
         console.error('Direct QR download failed, fallback to helper', e);
       }
     }
-    // Fallback to existing helper (in case it generates on demand)
-    try {
-      await downloadQR(blade.blade_code);
-    } catch (e) {
-      console.error('downloadQR helper failed', e);
-    }
+    try { await downloadQR(blade.blade_code); } catch (e) { console.error('downloadQR helper failed', e); }
   };
 
   const handlePrintLabel = async () => { if (blade) { try { await printQRLabel(blade.blade_code); } catch {} } };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 pb-20 md:pb-6">
+    <>
+      {/* FULL-WIDTH HEADER (outside container so its background spans the page) */}
       <PageHeader
         title={headerTitle}
         subtitle={headerSubtitle}
@@ -220,204 +207,205 @@ export const BladeDetails: React.FC = () => {
         }
       />
 
-      {/* Top: QR (left) + Info (right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* QR card */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-          <Card className="h-full">
+      {/* CONSTRAINED CONTENT */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 pb-20 md:pb-6">
+        {/* Top: QR (left) + Info (right) */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* QR card */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+            <Card className="h-full">
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <QrCode className="h-5 w-5 text-primary-600" />
+                  <span>Kod QR</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center">
+                <div className="w-full flex items-center justify-center">
+                  {qrDataUrl ? (
+                    <img src={qrDataUrl} alt="QR" className="w-56 h-56" />
+                  ) : (
+                    <div className="w-56 h-56 rounded-xl bg-gray-100 flex items-center justify-center text-gray-500">
+                      QR
+                    </div>
+                  )}
+                </div>
+                <div className="w-full mt-4 space-y-2">
+                  <Button className="w-full" variant="outline" onClick={handleDownloadQR}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Pobierz PNG
+                  </Button>
+                  <Button className="w-full" onClick={handlePrintLabel}>
+                    <Printer className="h-4 w-4 mr-2" />
+                    Drukuj etykietę (A7)
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Info card */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="lg:col-span-2"
+          >
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <FileText className="h-5 w-5 text-primary-600" />
+                  <span>Informacje o pile</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <div className="text-sm text-gray-600">ID Piły</div>
+                    <div className="font-medium">{blade?.blade_code ?? '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600">Status</div>
+                    <div className="mt-1"><StatusPill status={(blade?.status ?? 'c0') as any} /></div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600">Klient</div>
+                    <div className="font-medium">{client ? `${client.name} (${client.code2 ?? '—'})` : '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600">Maszyna</div>
+                    <div className="font-medium">{blade?.machine ?? '—'}</div>
+                  </div>
+                </div>
+
+                {/* Split spec grid (6 items) */}
+                <div>
+                  <div className="text-sm text-gray-600 mb-3">Specyfikacja</div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div>
+                      <div className="text-sm text-gray-500">Szerokość:</div>
+                      <div className="font-semibold">{width} <span className="font-normal">mm</span></div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-500">Grubość:</div>
+                      <div className="font-semibold">{thick} <span className="font-normal">mm</span></div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-500">Długość:</div>
+                      <div className="font-semibold">{length} <span className="font-normal">mm</span></div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-500">Podziałka:</div>
+                      <div className="font-semibold">{pitch}</div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-500">Uzębienie:</div>
+                      <div className="font-semibold">{tooth}</div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-500">Typ pilarki:</div>
+                      <div className="font-semibold">{sawType}</div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
+
+        {/* Movements */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
-                <QrCode className="h-5 w-5 text-primary-600" />
-                <span>Kod QR</span>
+                <Clock className="h-5 w-5 text-primary-600" />
+                <span>Historia ruchów (ostatnie 30)</span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-col items-center">
-              <div className="w-full flex items-center justify-center">
-                {qrDataUrl ? (
-                  <img src={qrDataUrl} alt="QR" className="w-56 h-56" />
-                ) : (
-                  <div className="w-56 h-56 rounded-xl bg-gray-100 flex items-center justify-center text-gray-500">
-                    QR
-                  </div>
-                )}
-              </div>
-              <div className="w-full mt-4 space-y-2">
-                <Button className="w-full" variant="outline" onClick={handleDownloadQR}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Pobierz PNG
-                </Button>
-                <Button className="w-full" onClick={handlePrintLabel}>
-                  <Printer className="h-4 w-4 mr-2" />
-                  Drukuj etykietę (A7)
-                </Button>
-              </div>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Data i czas</TableHead>
+                    <TableHead>Operacja</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Uwagi</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {movements.length ? (
+                    movements.map((m) => (
+                      <TableRow key={m.id}>
+                        <TableCell>{new Date(m.created_at).toLocaleString()}</TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-medium">
+                            {opLabel(m.type)}
+                          </span>
+                        </TableCell>
+                        <TableCell><StatusPill status={(blade?.status ?? 'c0') as any} /></TableCell>
+                        <TableCell>{m.note ?? '—'}</TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-gray-500">Brak ruchów</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </motion.div>
 
-        {/* Info card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="lg:col-span-2"
-        >
+        {/* WZPZ documents */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <FileText className="h-5 w-5 text-primary-600" />
-                <span>Informacje o pile</span>
+                <span>Dokumenty WZPZ</span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <div className="text-sm text-gray-600">ID Piły</div>
-                  <div className="font-medium">{blade?.blade_code ?? '—'}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-600">Status</div>
-                  <div className="mt-1">
-                    <StatusPill status={(blade?.status ?? 'c0') as any} />
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-600">Klient</div>
-                  <div className="font-medium">{client ? `${client.name} (${client.code2 ?? '—'})` : '—'}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-600">Maszyna</div>
-                  <div className="font-medium">{blade?.machine ?? '—'}</div>
-                </div>
-              </div>
-
-              {/* Spec grid — split just like the original design */}
-              <div>
-                <div className="text-sm text-gray-600 mb-3">Specyfikacja</div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                  <div>
-                    <div className="text-sm text-gray-500">Szerokość:</div>
-                    <div className="font-semibold">{width} <span className="font-normal">mm</span></div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500">Grubość:</div>
-                    <div className="font-semibold">{thick} <span className="font-normal">mm</span></div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500">Długość:</div>
-                    <div className="font-semibold">{length} <span className="font-normal">mm</span></div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500">Podziałka:</div>
-                    <div className="font-semibold">{pitch}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500">Uzębienie:</div>
-                    <div className="font-semibold">{tooth}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500">Typ pilarki:</div>
-                    <div className="font-semibold">{sawType}</div>
-                  </div>
-                </div>
-              </div>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Numer dokumentu</TableHead>
+                    <TableHead>Typ</TableHead>
+                    <TableHead>Data utworzenia</TableHead>
+                    <TableHead className="text-right">Akcje</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {docs.length ? (
+                    docs.map((d) => (
+                      <TableRow key={d.id}>
+                        <TableCell>{d.human_id}</TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                            d.type === 'WZ' ? 'bg-emerald-50 text-emerald-700' : 'bg-cyan-50 text-cyan-700'
+                          }`}>
+                            {d.type === 'WZ' ? 'Wydanie zewnętrzne' : 'Przyjęcie zewnętrzne'}
+                          </span>
+                        </TableCell>
+                        <TableCell>{new Date(d.created_at).toLocaleString()}</TableCell>
+                        <TableCell className="text-right">
+                          <Button size="sm" variant="outline">Pobierz PDF</Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-gray-500">Brak dokumentów WZPZ</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </motion.div>
       </div>
-
-      {/* Movements */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Clock className="h-5 w-5 text-primary-600" />
-              <span>Historia ruchów (ostatnie 30)</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Data i czas</TableHead>
-                  <TableHead>Operacja</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Uwagi</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {movements.length ? (
-                  movements.map((m) => (
-                    <TableRow key={m.id}>
-                      <TableCell>{new Date(m.created_at).toLocaleString()}</TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-medium">
-                          {opLabel(m.type)}
-                        </span>
-                      </TableCell>
-                      <TableCell><StatusPill status={(blade?.status ?? 'c0') as any} /></TableCell>
-                      <TableCell>{m.note ?? '—'}</TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-gray-500">Brak ruchów</TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* WZPZ documents */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <FileText className="h-5 w-5 text-primary-600" />
-              <span>Dokumenty WZPZ</span>
-            </CardTitle>
-          </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Numer dokumentu</TableHead>
-                <TableHead>Typ</TableHead>
-                <TableHead>Data utworzenia</TableHead>
-                <TableHead className="text-right">Akcje</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {docs.length ? (
-                docs.map((d) => (
-                  <TableRow key={d.id}>
-                    <TableCell>{d.human_id}</TableCell>
-                    <TableCell>
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        d.type === 'WZ' ? 'bg-emerald-50 text-emerald-700' : 'bg-cyan-50 text-cyan-700'
-                      }`}>
-                        {d.type === 'WZ' ? 'Wydanie zewnętrzne' : 'Przyjęcie zewnętrzne'}
-                      </span>
-                    </TableCell>
-                    <TableCell>{new Date(d.created_at).toLocaleString()}</TableCell>
-                    <TableCell className="text-right">
-                      <Button size="sm" variant="outline">Pobierz PDF</Button>
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center text-gray-500">Brak dokumentów WZPZ</TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-        </Card>
-      </motion.div>
-    </div>
+    </>
   );
 };
 
