@@ -1,13 +1,18 @@
+// src/App.tsx
 import React from 'react';
-import { AppRouter } from './router';
+import { RouterProvider } from 'react-router-dom';
+import { router } from './router';
 import { Toaster } from './components/ui/toaster';
+import { AuthProvider } from './hooks/useAuth'; // <-- use the real provider
 import './lib/i18n';
 
-export default function App() {
+function AppWithAuth() {
   return (
-    <>
-      <AppRouter />
+    <AuthProvider>
+      <RouterProvider router={router} />
       <Toaster />
-    </>
+    </AuthProvider>
   );
 }
+
+export default AppWithAuth;
