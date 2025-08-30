@@ -1,8 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { Package, Activity, TrendingUp, Users, Octagon, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { Package, Activity, TrendingUp, Users, Octagon, Trash2, QrCode, Plus } from 'lucide-react';
+
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Button } from '../../components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
-import { PageHeader } from '../../components/common/PageHeader';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+
+import useAuth from '../../hooks/useAuth';
+import { AdminClients } from './AdminClients';
+import { AdminBlades } from './AdminBlades';
+import { AdminUsers } from './AdminUsers';
+import { AdminReports } from './AdminReports';
 import { supabase } from '../../lib/supabase';
 
 type Client = { id: string; name: string; code2: string | null; nip?: string | null };
@@ -18,6 +28,10 @@ type Buckets = {
 };
 
 export const AdminDashboard: React.FC = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
+  // live data state
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<Buckets>({
     totalBlades: 0,
@@ -32,6 +46,7 @@ export const AdminDashboard: React.FC = () => {
     Array<Client & { counters: { bladesTotal: number; sharp: number; dull: number; regen: number } }>
   >([]);
 
+  // fetch blades + clients and compute buckets/top10
   useEffect(() => {
     let cancelled = false;
 
@@ -122,67 +137,118 @@ export const AdminDashboard: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Panel Administratora" subtitle="Pulpit" />
-
-      {/* Stat tiles */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {tiles.map((t) => (
-          <Card key={t.title} className="shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">{t.title}</CardTitle>
-            </CardHeader>
-            <CardContent className="flex items-center justify-between">
-              <div className="text-3xl font-semibold">{loading ? '—' : t.value}</div>
-              <div className={`p-2 rounded-xl ${t.bg}`}>
-                <t.icon className={`h-6 w-6 ${t.color}`} />
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+      {/* Page header with actions (unchanged UI) */}
+      <div className="flex flex-col gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Panel Administratora</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Witaj, {user?.email ?? '—'} – zarządzaj systemem QRSaws
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => navigate('/scan')} className="gap-2">
+            <QrCode className="h-4 w-4" />
+            Skanuj ostrze
+          </Button>
+          <Button variant="secondary" onClick={() => navigate('/admin/blade/new')} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Dodaj piłę
+          </Button>
+        </div>
       </div>
 
-      {/* Top clients */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Top 10 klientów według liczby pił</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Klient</TableHead>
-                <TableHead>Kod</TableHead>
-                <TableHead>NIP</TableHead>
-                <TableHead className="text-right">Wszystkie piły</TableHead>
-                <TableHead className="text-right">Ostre</TableHead>
-                <TableHead className="text-right">Tępe</TableHead>
-                <TableHead className="text-right">Do regeneracji</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {topClients.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell>{c.name}</TableCell>
-                  <TableCell>{c.code2 || '—'}</TableCell>
-                  <TableCell>{c.nip || '—'}</TableCell>
-                  <TableCell className="text-right">{c.counters.bladesTotal}</TableCell>
-                  <TableCell className="text-right">{c.counters.sharp}</TableCell>
-                  <TableCell className="text-right">{c.counters.dull}</TableCell>
-                  <TableCell className="text-right">{c.counters.regen}</TableCell>
-                </TableRow>
+      {/* Tabs bar (unchanged UI) */}
+      <Tabs defaultValue="dashboard" className="w-full">
+        <TabsList className="w-full justify-start">
+          <TabsTrigger value="dashboard">Pulpit</TabsTrigger>
+          <TabsTrigger value="clients">Klienci</TabsTrigger>
+          <TabsTrigger value="blades">Piły</TabsTrigger>
+          <TabsTrigger value="users">Użytkownicy</TabsTrigger>
+          <TabsTrigger value="reports">Raporty</TabsTrigger>
+        </TabsList>
+
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+          {/* DASHBOARD TAB */}
+          <TabsContent value="dashboard" className="space-y-6">
+            {/* KPI tiles – 6 in one row on xl */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+              {tiles.map((t) => (
+                <Card key={t.title} className="shadow-sm">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">{t.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex items-center justify-between">
+                    <div className="text-3xl font-semibold">{loading ? '—' : t.value}</div>
+                    <div className={`p-2 rounded-xl ${t.bg}`}>
+                      <t.icon className={`h-6 w-6 ${t.color}`} />
+                    </div>
+                  </CardContent>
+                </Card>
               ))}
-              {!topClients.length && !loading && (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center text-gray-500">
-                    Brak danych
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+            </div>
+
+            {/* Top clients table – same UI as before */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Top 10 klientów według liczby pił</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Klient</TableHead>
+                      <TableHead>Kod</TableHead>
+                      <TableHead>NIP</TableHead>
+                      <TableHead className="text-right">Wszystkie piły</TableHead>
+                      <TableHead className="text-right">Ostre</TableHead>
+                      <TableHead className="text-right">Tępe</TableHead>
+                      <TableHead className="text-right">Do regeneracji</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {topClients.map((c) => (
+                      <TableRow key={c.id}>
+                        <TableCell>{c.name}</TableCell>
+                        <TableCell>{c.code2 || '—'}</TableCell>
+                        <TableCell>{c.nip || '—'}</TableCell>
+                        <TableCell className="text-right">{c.counters.bladesTotal}</TableCell>
+                        <TableCell className="text-right">{c.counters.sharp}</TableCell>
+                        <TableCell className="text-right">{c.counters.dull}</TableCell>
+                        <TableCell className="text-right">{c.counters.regen}</TableCell>
+                      </TableRow>
+                    ))}
+                    {!topClients.length && !loading && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-gray-500">
+                          Brak danych
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* OTHER TABS (unchanged UI) */}
+          <TabsContent value="clients" className="space-y-6">
+            <AdminClients />
+          </TabsContent>
+
+          <TabsContent value="blades" className="space-y-6">
+            <AdminBlades />
+          </TabsContent>
+
+          <TabsContent value="users" className="space-y-6">
+            <AdminUsers />
+          </TabsContent>
+
+          <TabsContent value="reports" className="space-y-6">
+            <AdminReports />
+          </TabsContent>
+        </motion.div>
+      </Tabs>
     </div>
   );
 };
