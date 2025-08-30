@@ -20,9 +20,17 @@ type Buckets = {
 export const AdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<Buckets>({
-    totalBlades: 0, sharp: 0, dull: 0, regen: 0, cracked: 0, scrapped: 0, other: 0,
+    totalBlades: 0,
+    sharp: 0,
+    dull: 0,
+    regen: 0,
+    cracked: 0,
+    scrapped: 0,
+    other: 0,
   });
-  const [topClients, setTopClients] = useState<Array<Client & { counters: { bladesTotal: number; sharp: number; dull: number; regen: number } }>>([]);
+  const [topClients, setTopClients] = useState<
+    Array<Client & { counters: { bladesTotal: number; sharp: number; dull: number; regen: number } }>
+  >([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,7 +45,13 @@ export const AdminDashboard: React.FC = () => {
         if (bErr) throw bErr;
 
         const buckets: Buckets = {
-          totalBlades: 0, sharp: 0, dull: 0, regen: 0, cracked: 0, scrapped: 0, other: 0,
+          totalBlades: 0,
+          sharp: 0,
+          dull: 0,
+          regen: 0,
+          cracked: 0,
+          scrapped: 0,
+          other: 0,
         };
         const DULL = new Set(['c1', 'c2']);
 
@@ -65,7 +79,7 @@ export const AdminDashboard: React.FC = () => {
         const tc = Object.entries(byClient)
           .filter(([id]) => id !== '_none')
           .map(([id, c]) => {
-            const row = (clients ?? []).find(x => x.id === id) as Client | undefined;
+            const row = (clients ?? []).find((x) => x.id === id) as Client | undefined;
             return {
               id,
               name: row?.name ?? id,
@@ -93,63 +107,5 @@ export const AdminDashboard: React.FC = () => {
       }
     })();
 
-    return () => { cancelled = true; };
-  }, []);
-
-  const tiles = [
-    { title: 'Wszystkie piły', value: stats.totalBlades, icon: Package, color: 'text-primary-600', bg: 'bg-primary-50' },
-    { title: 'Ostre (c0)', value: stats.sharp, icon: Activity, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { title: 'Tępe (c1–c2)', value: stats.dull, icon: TrendingUp, color: 'text-amber-600', bg: 'bg-amber-50' },
-    { title: 'Do regeneracji (c13)', value: stats.regen, icon: Users, color: 'text-cyan-600', bg: 'bg-cyan-50' },
-    { title: 'Pęknięte (c4)', value: stats.cracked, icon: Octagon, color: 'text-rose-600', bg: 'bg-rose-50' },
-    { title: 'Na złom (c12)', value: stats.scrapped, icon: Trash2, color: 'text-slate-600', bg: 'bg-slate-50' },
-  ];
-
-  return (
-    <div className="space-y-6">
-      <PageHeader title="Panel Administratora" subtitle="Pulpit" />
-
-      {/* Stat tiles */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {tiles.map((t) => (
-          <Card key={t.title} className="shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">{t.title}</CardTitle>
-            </CardHeader>
-            <CardContent className="flex items-center justify-between">
-              <div className="text-3xl font-semibold">{loading ? '—' : t.value}</div>
-              <div className={`p-2 rounded-xl ${t.bg}`}>
-                <t.icon className={`h-6 w-6 ${t.color}`} />
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Top clients */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Top 10 klientów według liczby pił</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Klient</TableHead>
-                <TableHead>Kod</TableHead>
-                <TableHead>NIP</TableHead>
-                <TableHead className="text-right">Wszystkie piły</TableHead>
-                <TableHead className="text-right">Ostre</TableHead>
-                <TableHead className="text-right">Tępe</TableHead>
-                <TableHead className="text-right">Do regeneracji</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {topClients.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell>{c.name}</TableCell>
-                  <TableCell>{c.code2 || '—'}</TableCell>
-                  <TableCell>{c.nip || '—'}</TableCell>
-                  <TableCell className="text-right">{c.counters.bladesTotal}</TableCell>
-                  <TableCell className="text-right">{c.counters.sharp}</TableCell>
-                  <TableCell className="text-ri
+    return () => {
+      cancelled =
