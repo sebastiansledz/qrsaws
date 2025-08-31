@@ -206,7 +206,7 @@ export const BladeDetails: React.FC = () => {
           </div>
         }
       />
-
+    <div className="space-y-6">
       {/* CONSTRAINED CONTENT */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 pb-20 md:pb-6">
         {/* Top: QR (left) + Info (right) */}
@@ -404,6 +404,7 @@ export const BladeDetails: React.FC = () => {
             </CardContent>
           </Card>
         </motion.div>
+      </div>
       </div>
     </>
   );
