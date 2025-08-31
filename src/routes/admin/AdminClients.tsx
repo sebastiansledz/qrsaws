@@ -148,8 +148,7 @@ export const AdminClients: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-20 md:pb-6">
-      <PageHeader title="Panel Administratora" subtitle="Klienci" />
+    <div className="space-y-6 pb-20 md:pb-6">  
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
         <motion.div
