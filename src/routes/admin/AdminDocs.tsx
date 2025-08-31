@@ -153,7 +153,7 @@ export default function AdminDocs() {
             </p>
 
             <div className="mt-4 flex items-center gap-3">
-                        <Button onClick={() => navigate('/scan')} className="gap-2">
+            <Button onClick={() => navigate('/scan')} className="gap-2">
             <QrCode className="h-4 w-4" />
             Skanuj ostrze
           </Button>
