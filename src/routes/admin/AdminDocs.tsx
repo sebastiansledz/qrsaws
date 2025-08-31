@@ -1,334 +1,324 @@
-// src/routes/admin/AdminDocs.tsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, FilePlus2, Eye, Edit, QrCode } from 'lucide-react';
+import { Plus, ExternalLink } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
-import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Label } from '../../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Input } from '../../components/ui/input';
 
-import { useNotify } from '../../lib/notify';
 import { supabase } from '../../lib/supabase';
-import useAuth from '../../hooks/useAuth';
+import { useNotify } from '../../lib/notify';
 
-import { createWZPZDoc, listDocs } from '../../lib/queriesSupabase';
+type DocType = 'WZ' | 'PZ';
+type DocStatus = 'open' | 'closed';
 
-// ---- Types --------------------------------------------------------------
-type ClientLite = { id: string; name: string; code2: string | null };
 type DocRow = {
   id: string;
-  type: 'WZ' | 'PZ';
+  type: DocType;
   client_id: string;
   human_id: string;
-  status: 'open' | 'closed';
+  status: DocStatus;
   created_at: string;
-  client?: ClientLite;
+  client: { id: string; name: string; code2: string | null } | null;
 };
 
-// ---- Component ----------------------------------------------------------
+type ClientLite = { id: string; name: string; code2: string | null };
+
+const SELECT =
+  'id,type,client_id,human_id,status,created_at,' +
+  'client:clients!wzpz_docs_client_id_fkey(id,name,code2)';
+
+const pad = (n: number, len: number) => String(n).padStart(len, '0');
+
 export default function AdminDocs() {
   const nav = useNavigate();
-  const { pathname } = useLocation();
-  const { user, isAdmin } = useAuth();
   const { success, error } = useNotify();
 
-  // filters
-  const [q, setQ] = useState('');
-  const [clientId, setClientId] = useState<string | 'all'>('all');
-  const [status, setStatus] = useState<'all' | 'open' | 'closed'>('all');
-  const [type, setType] = useState<'all' | 'WZ' | 'PZ'>('all');
-
-  // data
-  const [rows, setRows] = useState<DocRow[]>([]);
-  const [clients, setClients] = useState<ClientLite[]>([]);
+  const [docs, setDocs] = useState<DocRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // create dialog
-  const [openCreate, setOpenCreate] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [newType, setNewType] = useState<'WZ' | 'PZ'>('WZ');
-  const [newClientId, setNewClientId] = useState<string>('');
+  // Modal state (create doc)
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [docType, setDocType] = useState<DocType>('WZ');
+  const [clientId, setClientId] = useState<string>('');
+  const [clients, setClients] = useState<ClientLite[]>([]);
+  const [filter, setFilter] = useState('');
 
-  // --- load clients once
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      const { data, error: ce } = await supabase
-        .from('clients')
-        .select('id, name, code2')
-        .order('name', { ascending: true });
-      if (!ce && mounted) setClients((data ?? []) as ClientLite[]);
-    })();
-    return () => { mounted = false; };
+  const filteredDocs = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return docs;
+    return docs.filter(
+      (d) =>
+        d.human_id.toLowerCase().includes(q) ||
+        (d.client?.name?.toLowerCase().includes(q) ?? false) ||
+        (d.client?.code2?.toLowerCase().includes(q) ?? false)
+    );
+  }, [docs, filter]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error: de } = await supabase
+        .from('wzpz_docs')
+        .select(SELECT)
+        .order('created_at', { ascending: false });
+      if (de) throw de;
+      setDocs((data ?? []) as DocRow[]);
+    } catch (e) {
+      console.error('AdminDocs load error', e);
+      error('Nie udało się wczytać dokumentów');
+    } finally {
+      setLoading(false);
+    }
+  }, [error]);
+
+  const loadClients = useCallback(async () => {
+    const { data, error: ce } = await supabase
+      .from('clients')
+      .select('id,name,code2')
+      .order('name', { ascending: true });
+    if (ce) throw ce;
+    setClients((data ?? []) as ClientLite[]);
   }, []);
 
-  // --- load docs on filters change
+  const didInit = useRef(false);
   useEffect(() => {
-    let mounted = true;
+    if (didInit.current) return;
+    didInit.current = true;
     (async () => {
       try {
-        setLoading(true);
-        const data = await listDocs({
-          q,
-          clientId: clientId === 'all' ? null : clientId,
-          status,
-          type,
-          limit: 500,
-        });
-        if (mounted) setRows(data as DocRow[]);
+        await Promise.all([load(), loadClients()]);
       } catch (e) {
-        console.error('Docs load error', e);
-        error('Nie udało się pobrać listy dokumentów');
-      } finally {
-        if (mounted) setLoading(false);
+        console.error(e);
       }
     })();
-    return () => { mounted = false; };
-  }, [q, clientId, status, type, error]);
+  }, [load, loadClients]);
 
-  // --- tabs active value from URL
-  const currentTab = useMemo(() => {
-    if (pathname.startsWith('/admin/clients')) return 'clients';
-    if (pathname.startsWith('/admin/blade'))   return 'blades';
-    if (pathname.startsWith('/admin/docs'))    return 'docs';
-    if (pathname.startsWith('/admin/users'))   return 'users';
-    if (pathname.startsWith('/admin/reports')) return 'reports';
-    return 'dashboard';
-  }, [pathname]);
-
-  const onTabsChange = (v: string) => {
-    if (v === 'dashboard') return nav('/admin');
-    if (v === 'clients')   return nav('/admin');
-    if (v === 'blades')    return nav('/admin');
-    if (v === 'docs')      return nav('/admin/docs');
-    if (v === 'users')     return nav('/admin');
-    if (v === 'reports')   return nav('/admin');
-  };
-
-  const onOpenCreate = () => {
-    setNewType('WZ');
-    setNewClientId('');
-    setOpenCreate(true);
-  };
-
-  const onCreate = async (e: React.FormEvent) => {
+  async function createDocument(e: React.FormEvent) {
     e.preventDefault();
-    if (!newClientId) {
-      return error('Wybierz klienta');
-    }
-    setCreating(true);
+    if (!clientId) return error('Wybierz klienta');
+    setSaving(true);
     try {
-      const doc = await createWZPZDoc({ type: newType, client_id: newClientId });
-      success(`Utworzono dokument ${doc.human_id}`);
-      setOpenCreate(false);
-      // reload and go to details
-      const data = await listDocs({ q, clientId: clientId === 'all' ? null : clientId, status, type, limit: 500 });
-      setRows(data as DocRow[]);
-      nav(`/admin/docs/${doc.id}`);
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+
+      // next seq for (type, client, year, month)
+      const { data: seqRow, error: se } = await supabase
+        .from('wzpz_docs')
+        .select('seq')
+        .eq('type', docType)
+        .eq('client_id', clientId)
+        .eq('year', year)
+        .eq('month', month)
+        .order('seq', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (se) throw se;
+      const seq = (seqRow?.seq ?? 0) + 1;
+
+      // human id (TYPE/CODE2/YYYY/MM/NNN)
+      const cli = clients.find((c) => c.id === clientId);
+      const code2 = cli?.code2 || 'XX';
+      const human_id = `${docType}/${code2}/${year}/${pad(month, 2)}/${pad(seq, 3)}`;
+
+      const { data: userRes, error: ue } = await supabase.auth.getUser();
+      if (ue) throw ue;
+      const created_by = userRes.user?.id ?? null;
+
+      const { data: ins, error: ie } = await supabase
+        .from('wzpz_docs')
+        .insert({
+          type: docType,
+          client_id: clientId,
+          seq,
+          year,
+          month,
+          human_id,
+          created_by,
+          status: 'open',
+        })
+        .select('id')
+        .single();
+      if (ie) throw ie;
+
+      success(`Utworzono dokument ${human_id}`);
+      setOpen(false);
+      setClientId('');
+      setDocType('WZ');
+      nav(`/admin/docs/${ins.id}`);
     } catch (e: any) {
       console.error('Create doc failed', e);
       error(e?.message || 'Nie udało się utworzyć dokumentu');
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
-  };
+  }
 
   return (
-    <div className="space-y-6 pb-20 md:pb-6">
-      {/* === HERO HEADER (same style as other admin tabs) =================== */}
+    <div className="space-y-6">
+      {/* Page header (same intro bar as other tabs) */}
       <div className="bg-transparent">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-6">
-            <h1 className="text-3xl font-bold tracking-tight">
-              Panel Administratora
-            </h1>
-            <p className="mt-2 text-gray-600">
-              Witaj, {user?.email} – zarządzaj systemem QRSaws
-            </p>
-
-            <div className="mt-4 flex items-center gap-2">
-            <Button onClick={() => navigate('/scan')} className="gap-2">
-            <QrCode className="h-4 w-4" />
-            Skanuj ostrze
-          </Button>
-          <Button
-            onClick={() => navigate('/admin/blade/new')}
-            className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-          >
-            <Plus className="h-4 w-4" />
-            Dodaj piłę
-          </Button>
-              
+          <div className="flex items-center justify-between py-4">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-extrabold">WZ/PZ</h1>
+              <p className="text-gray-600">Zarządzaj dokumentami wydania/przyjęcia</p>
             </div>
+            <Button onClick={() => setOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Dodaj dokument
+            </Button>
           </div>
-
-          {/* Tabs bar shared across admin pages */}
-          <Tabs value={currentTab} onValueChange={onTabsChange} className="w-full">
-            <TabsList className="grid w-full grid-cols-6 mb-6">
-              <TabsTrigger value="dashboard" className="w-full">Pulpit</TabsTrigger>
-              <TabsTrigger value="clients"   className="w-full">Klienci</TabsTrigger>
-              <TabsTrigger value="blades"    className="w-full">Piły</TabsTrigger>
-              <TabsTrigger value="docs"      className="w-full">WZ/PZ</TabsTrigger>
-              <TabsTrigger value="users"     className="w-full">Użytkownicy</TabsTrigger>
-              <TabsTrigger value="reports"   className="w-full">Raporty</TabsTrigger>
-            </TabsList>
-          </Tabs>
         </div>
       </div>
 
-      {/* === CONTENT ======================================================== */}
+      {/* Filters + list (mirror blades list layout) */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-        {/* Title + action */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900">Zarządzanie dokumentami</h2>
-          {isAdmin && (
-            <Button
-              type="button"
-              onClick={onOpenCreate}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              <FilePlus2 className="h-4 w-4 mr-2" />
-              Dodaj dokument
-            </Button>
-          )}
-        </motion.div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Filtry i wyszukiwanie</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-2 md:col-span-2">
+              <Label>Szukaj</Label>
+              <Input
+                placeholder="ID dokumentu lub klient…"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              />
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* Filters */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-          <Card>
-            <CardHeader>
-              <CardTitle>Filtry i wyszukiwanie</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-3">
-              <Input placeholder="Numer dokumentu (np. WZ/AB/2025/08/001)..." value={q} onChange={(e) => setQ(e.target.value)} />
-              <Select value={clientId} onValueChange={(v) => setClientId(v as any)}>
-                <SelectTrigger><SelectValue placeholder="Wszyscy klienci" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Wszyscy klienci</SelectItem>
-                  {clients.map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.name} {c.code2 ? `(${c.code2})` : ''}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="grid grid-cols-2 gap-4">
-                <Select value={type} onValueChange={(v) => setType(v as any)}>
-                  <SelectTrigger><SelectValue placeholder="Typ" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Wszystkie typy</SelectItem>
-                    <SelectItem value="WZ">WZ</SelectItem>
-                    <SelectItem value="PZ">PZ</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={status} onValueChange={(v) => setStatus(v as any)}>
-                  <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Wszystkie statusy</SelectItem>
-                    <SelectItem value="open">Otwarte</SelectItem>
-                    <SelectItem value="closed">Zamknięte</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* List */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card>
-            <CardHeader><CardTitle>Lista dokumentów ({rows.length})</CardTitle></CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
+        <Card>
+          <CardHeader>
+            <CardTitle>Lista dokumentów</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Numer</TableHead>
+                  <TableHead>Typ</TableHead>
+                  <TableHead>Klient</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Data utworzenia</TableHead>
+                  <TableHead className="text-right">Akcje</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
                   <TableRow>
-                    <TableHead>Numer</TableHead>
-                    <TableHead>Typ</TableHead>
-                    <TableHead>Klient</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Data utworzenia</TableHead>
-                    <TableHead className="text-right">Akcje</TableHead>
+                    <TableCell colSpan={6} className="text-center text-gray-500">
+                      Ładowanie…
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {!rows.length && !loading && (
-                    <TableRow><TableCell colSpan={6} className="text-center text-gray-500">Brak dokumentów</TableCell></TableRow>
-                  )}
-                  {rows.map((r, i) => (
+                ) : filteredDocs.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-gray-500">
+                      Brak dokumentów
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredDocs.map((d, i) => (
                     <motion.tr
-                      key={r.id}
+                      key={d.id}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: i * 0.03 }}
-                      className="hover:bg-muted/40"
+                      className="hover:bg-muted/40 cursor-pointer"
+                      onClick={() => nav(`/admin/docs/${d.id}`)}
                     >
-                      <TableCell className="font-medium">{r.human_id}</TableCell>
-                      <TableCell>{r.type}</TableCell>
-                      <TableCell>{r.client?.name ?? '—'}{r.client?.code2 ? ` (${r.client.code2})` : ''}</TableCell>
+                      <TableCell className="font-medium">{d.human_id}</TableCell>
+                      <TableCell>{d.type}</TableCell>
                       <TableCell>
-                        {r.status === 'open'
-                          ? <span className="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">Otwarte</span>
-                          : <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">Zamknięte</span>}
+                        {d.client ? `${d.client.name}${d.client.code2 ? ` (${d.client.code2})` : ''}` : '—'}
                       </TableCell>
-                      <TableCell>{new Date(r.created_at).toLocaleString()}</TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button variant="outline" size="sm" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); nav(`/admin/docs/${r.id}`); }}>
-                          <Eye className="h-4 w-4 mr-1" /> Podgląd
-                        </Button>
-                        {isAdmin && (
-                          <Button variant="outline" size="sm" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); nav(`/admin/docs/${r.id}`); }}>
-                            <Edit className="h-4 w-4 mr-1" /> Edytuj
-                          </Button>
+                      <TableCell>
+                        {d.status === 'open' ? (
+                          <span className="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+                            Otwarte
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                            Zamknięte
+                          </span>
                         )}
                       </TableCell>
+                      <TableCell>{new Date(d.created_at).toLocaleString()}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            nav(`/admin/docs/${d.id}`);
+                          }}
+                        >
+                          <ExternalLink className="h-4 w-4 mr-2" />
+                          Podgląd
+                        </Button>
+                      </TableCell>
                     </motion.tr>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </motion.div>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* === CREATE DOCUMENT DIALOG ======================================= */}
-      <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+      {/* Create document dialog */}
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogHeader>
-            <DialogTitle>Dodaj dokument WZ/PZ</DialogTitle>
+            <DialogTitle>Dodaj dokument</DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={onCreate} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Typ *</Label>
-                <Select value={newType} onValueChange={(v) => setNewType(v as 'WZ' | 'PZ')}>
-                  <SelectTrigger><SelectValue placeholder="Wybierz typ" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="WZ">WZ — Wydanie zewnętrzne</SelectItem>
-                    <SelectItem value="PZ">PZ — Przyjęcie zewnętrzne</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Klient *</Label>
-                <Select value={newClientId} onValueChange={(v) => setNewClientId(v)}>
-                  <SelectTrigger><SelectValue placeholder="Wybierz klienta" /></SelectTrigger>
-                  <SelectContent>
-                    {clients.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.name} {c.code2 ? `(${c.code2})` : ''}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+          <form onSubmit={createDocument} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Typ *</Label>
+              <Select value={docType} onValueChange={(v: DocType) => setDocType(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Wybierz typ" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="WZ">WZ — Wydanie zewnętrzne</SelectItem>
+                  <SelectItem value="PZ">PZ — Przyjęcie zewnętrzne</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Klient *</Label>
+              <Select value={clientId} onValueChange={(v) => setClientId(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Wybierz klienta" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name} {c.code2 ? `(${c.code2})` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              <Button type="button" variant="outline" onClick={() => setOpenCreate(false)}>Anuluj</Button>
-              <Button type="submit" disabled={creating}>Utwórz</Button>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                Anuluj
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? 'Tworzenie…' : 'Utwórz'}
+              </Button>
             </div>
           </form>
         </DialogContent>
