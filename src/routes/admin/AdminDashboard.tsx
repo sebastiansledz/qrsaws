@@ -179,6 +179,7 @@ export const AdminDashboard: React.FC = () => {
           <TabsTrigger value="dashboard" className="w-full">Pulpit</TabsTrigger>
           <TabsTrigger value="clients" className="w-full">Klienci</TabsTrigger>
           <TabsTrigger value="blades" className="w-full">Piły</TabsTrigger>
+          <TabsTrigger value="docs" className="w-full">WZ/PZ</TabsTrigger>
           <TabsTrigger value="users" className="w-full">Użytkownicy</TabsTrigger>
           <TabsTrigger value="reports" className="w-full">Raporty</TabsTrigger>
         </TabsList>
