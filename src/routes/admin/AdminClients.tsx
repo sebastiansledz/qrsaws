@@ -1,298 +1,398 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Settings, Wrench, X } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Plus, Edit, Settings } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
-import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
-import { PageHeader } from '../../components/common/PageHeader';
+import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 
-import { supabase } from '../../lib/supabase';
+import { useForm } from 'react-hook-form';
+import { listClientsLite, createClientSB, updateClientSB, listMachinesByClient, createMachine } from '../../lib/queriesSupabase';
+import useAuth from '../../hooks/useAuth';
+import { Client } from '../../types/client';
+import { clientSchema, machineSchema, ClientFormData, MachineFormData } from '../../lib/validators';
+import { createFormConfig } from '../../lib/forms';
 import { useNotify } from '../../lib/notify';
-import { listMachinesByClient, createMachine } from '../../lib/queriesSupabase';
 
-const Overlay: React.FC<React.PropsWithChildren<{ open: boolean; onClose: () => void }>> = ({ open, onClose, children }) => {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-[60]">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="absolute inset-0 flex items-start justify-center overflow-auto">
-        <div className="mt-8 mb-8 w-[min(1100px,95vw)] rounded-3xl bg-white shadow-2xl">
-          {children}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-type ClientRow = {
-  id: string;
-  name: string;
-  code2: string | null;
-  nip: string | null;
-  created_at: string;
-};
-
-type MachineRow = {
-  id: string;
-  client_id: string;
-  name: string;
-  code: string | null;
-  location: string | null;
-  notes: string | null;
-  created_at: string;
-};
+function useClients() {
+  return useQuery({
+    queryKey: ['clients'],
+    queryFn: async () => {
+      const data = await listClientsLite();
+      return data;
+    },
+  });
+}
 
 export const AdminClients: React.FC = () => {
-  const { success, error } = useNotify();
+  const { isAdmin, loading: authLoading } = useAuth();
+  const { success, error: notifyError } = useNotify();
+  const { data: rows = [], isLoading: dataLoading, refetch } = useClients();
 
-  const [rows, setRows] = useState<ClientRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [q, setQ] = useState('');
+  // dialogs / forms
+  const [showClientDialog, setShowClientDialog] = useState(false);
+  const [editingClient, setEditingClient] = useState<Client | null>(null);
 
-  // Machines dialog state
-  const [machinesOpen, setMachinesOpen] = useState(false);
-  const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
-  const [machines, setMachines] = useState<MachineRow[]>([]);
-  const [machinesLoading, setMachinesLoading] = useState(false);
+  const [showMachinesDialog, setShowMachinesDialog] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [machines, setMachines] = useState<any[]>([]);
+  const [showMachineForm, setShowMachineForm] = useState(false);
 
-  // Add machine form state
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [mName, setMName] = useState('');
-  const [mLocation, setMLocation] = useState('');
-  const [mNotes, setMNotes] = useState('');
+  const clientForm = useForm<ClientFormData>(createFormConfig(clientSchema));
+  const machineForm = useForm<MachineFormData>(createFormConfig(machineSchema));
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const { data, error: qErr } = await supabase
-          .from('clients')
-          .select('id, name, code2, nip, created_at')
-          .order('name', { ascending: true });
-        if (qErr) throw qErr;
-        if (!cancelled) setRows(data ?? []);
-      } catch (e) {
-        console.error('AdminClients load error', e);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  const filtered = useMemo(() => {
-    const k = q.trim().toLowerCase();
-    if (!k) return rows;
-    return rows.filter(r =>
-      r.name.toLowerCase().includes(k) ||
-      (r.code2 ?? '').toLowerCase().includes(k) ||
-      (r.nip ?? '').toLowerCase().includes(k)
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
     );
-  }, [rows, q]);
+  }
+  if (!isAdmin) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-gray-600">Brak uprawnień do zarządzania klientami.</p>
+      </div>
+    );
+  }
+  if (dataLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
 
-  const openMachines = async (client: ClientRow) => {
-    setSelectedClient(client);
-    setMachines([]);
-    setShowAddForm(false);
-    setMName(''); setMLocation(''); setMNotes('');
-    setMachinesOpen(true);
-    setMachinesLoading(true);
+  // ---- actions ----
+  const handleAddClient = () => {
+    setEditingClient(null);
+    clientForm.reset({
+      name: '',
+      code2: '',
+      nip: '',
+      phone: '',
+      email: '',
+      address: '',
+    });
+    setShowClientDialog(true);
+  };
+
+  const handleEditClient = (client: any) => {
+    setEditingClient(client);
+    clientForm.reset({
+      name: client.name || '',
+      code2: client.code2 || '',
+      nip: client.nip || '',
+      phone: client.phone || '',
+      email: client.email || '',
+      address: client.address || '',
+    });
+    setShowClientDialog(true);
+  };
+
+  const onSubmitClient = async (data: ClientFormData) => {
     try {
-      const list = await listMachinesByClient(client.id);
-      setMachines(list as MachineRow[]);
+      const payload = {
+        ...data,
+        code2: (data.code2 || '').trim().toUpperCase(),
+      };
+
+      if (editingClient) {
+        await updateClientSB(editingClient.id, payload);
+        success('Zapisano zmiany klienta.');
+      } else {
+        await createClientSB(payload);
+        success('Dodano klienta.');
+      }
+      setShowClientDialog(false);
+      refetch();
+    } catch (e: any) {
+      console.error('Save client failed', e);
+      notifyError(e?.message || 'Nie udało się zapisać klienta');
+    }
+  };
+
+  const loadMachines = async (clientId: string) => {
+    try {
+      const list = await listMachinesByClient(clientId);
+      setMachines(list);
     } catch (e) {
-      console.error('Machines list error', e);
-      error('Nie udało się pobrać listy maszyn');
-    } finally {
-      setMachinesLoading(false);
+      console.error('Error loading machines:', e);
+      setMachines([]);
+      notifyError('Nie udało się pobrać listy maszyn');
     }
   };
 
-  const closeMachines = () => {
-    setMachinesOpen(false);
-    setSelectedClient(null);
-    setMachines([]);
-    setShowAddForm(false);
-    setMName(''); setMLocation(''); setMNotes('');
+  const handleShowMachines = async (client: any) => {
+    setSelectedClient(client);
+    setShowMachineForm(false);
+    await loadMachines(client.id);
+    setShowMachinesDialog(true);
   };
 
-  const submitAddMachine = async () => {
+  const onSubmitMachine = async (data: MachineFormData) => {
     if (!selectedClient) return;
-    const name = mName.trim();
-    if (!name) {
-      error('Nazwa maszyny jest wymagana');
-      return;
-    }
-    setSaving(true);
     try {
       const row = await createMachine({
         client_id: selectedClient.id,
-        name,
-        location: mLocation.trim() || null,
-        notes: mNotes.trim() || null,
+        name: data.name,
+        location: data.location || null,
+        notes: data.notes || null,
       });
-      setMachines(prev => [row as MachineRow, ...prev]); // optimistic
-      setShowAddForm(false);
-      setMName(''); setMLocation(''); setMNotes('');
+      // optimistic update
+      setMachines((prev) => [row, ...prev]);
+      setShowMachineForm(false);
+      machineForm.reset({ name: '', location: '', notes: '' });
       success('Maszyna została dodana');
     } catch (e: any) {
       console.error('Create machine failed', e);
-      error(e?.message || 'Nie udało się dodać maszyny');
-    } finally {
-      setSaving(false);
+      notifyError(e?.message || 'Nie udało się dodać maszyny');
     }
   };
 
   return (
     <div className="space-y-6 pb-20 md:pb-6">
-      
-
-      <div className="space-y-6 pb-20 md:pb-6">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }}
-          className="flex items-center justify-between"
-        >
-          <h2 className="text-2xl font-bold text-gray-900">Zarządzanie klientami</h2>
-          <div className="w-72">
-            <Input placeholder="Szukaj: nazwa / kod / NIP…" value={q} onChange={(e) => setQ(e.target.value)} />
-          </div>
-        </motion.div>
-
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card>
-            <CardHeader>
-              <CardTitle>Lista klientów ({filtered.length})</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Klient</TableHead>
-                    <TableHead>Kod</TableHead>
-                    <TableHead>NIP</TableHead>
-                    <TableHead className="text-right">Akcje</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map(c => (
-                    <TableRow key={c.id}>
-                      <TableCell className="font-medium">{c.name}</TableCell>
-                      <TableCell>{c.code2 ?? '—'}</TableCell>
-                      <TableCell>{c.nip ?? '—'}</TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button size="sm" variant="outline" onClick={() => openMachines(c)}>
-                          <Wrench className="h-4 w-4 mr-2" />
-                          Maszyny
-                        </Button>
-                        <Button size="sm" variant="outline">
-                          <Settings className="h-4 w-4 mr-2" />
-                          Edytuj
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {!filtered.length && !loading && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center text-gray-500">Brak klientów</TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-
-      {/* Machines dialog */}
-      <Overlay open={machinesOpen} onClose={closeMachines}>
-        <div className="p-6 sm:p-8">
-          <div className="flex items-center justify-between">
-            <h3 className="text-2xl font-bold">Maszyny{selectedClient ? ` — ${selectedClient.name}` : ''}</h3>
-            <button className="rounded-full p-2 hover:bg-gray-100" aria-label="Zamknij" onClick={closeMachines}>
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          <div className="mt-6 flex justify-end">
-            <Button onClick={() => setShowAddForm(true)} className="bg-primary-600 hover:bg-primary-700 text-white">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+        <Card>
+          <CardHeader className="flex items-center justify-between">
+            <CardTitle>Klienci</CardTitle>
+            <Button onClick={handleAddClient}>
               <Plus className="h-4 w-4 mr-2" />
-              Dodaj maszynę
+              Dodaj klienta
             </Button>
-          </div>
-
-          <div className="mt-6">
+          </CardHeader>
+          <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Nazwa</TableHead>
-                  <TableHead>Lokalizacja</TableHead>
-                  <TableHead>Uwagi</TableHead>
+                  <TableHead>Kod</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Telefon</TableHead>
                   <TableHead className="text-right">Akcje</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {machinesLoading ? (
+                {rows.map((client: any, index: number) => (
+                  <motion.tr
+                    key={client.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: index * 0.05 }}
+                    className="hover:bg-muted/50 transition-colors"
+                  >
+                    <TableCell className="font-medium">{client.name}</TableCell>
+                    <TableCell>{client.code2 ?? '—'}</TableCell>
+                    <TableCell>{client.email ?? '—'}</TableCell>
+                    <TableCell>{client.phone ?? '—'}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation(); // makes sure the dialog opens even inside motion.tr
+                            handleEditClient(client);
+                          }}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleShowMachines(client);
+                          }}
+                        >
+                          <Settings className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </motion.tr>
+                ))}
+                {rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center text-gray-500">Ładowanie…</TableCell>
-                  </TableRow>
-                ) : machines.length ? (
-                  machines.map(m => (
-                    <TableRow key={m.id}>
-                      <TableCell className="font-medium">{m.name}</TableCell>
-                      <TableCell>{m.location ?? '—'}</TableCell>
-                      <TableCell>{m.notes ?? '—'}</TableCell>
-                      <TableCell className="text-right">{/* future actions */}</TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-gray-500">Brak maszyn</TableCell>
+                    <TableCell colSpan={5} className="text-center text-gray-500 py-8">
+                      Brak klientów w systemie
+                    </TableCell>
                   </TableRow>
                 )}
               </TableBody>
             </Table>
-          </div>
+          </CardContent>
+        </Card>
+      </motion.div>
 
-          {showAddForm && (
-            <div className="mt-8 rounded-2xl border border-gray-200 bg-gray-50 p-6">
-              <h4 className="text-lg font-semibold mb-4">Dodaj nową maszynę</h4>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="md:col-span-2">
-                  <label className="text-sm text-gray-600">Nazwa *</label>
-                  <Input value={mName} onChange={(e) => setMName(e.target.value)} placeholder="np. Trak 2" />
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600">Lokalizacja</label>
-                  <Input value={mLocation} onChange={(e) => setMLocation(e.target.value)} placeholder="np. Hala 12" />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="text-sm text-gray-600">Uwagi</label>
-                  <textarea
-                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
-                    rows={3}
-                    value={mNotes}
-                    onChange={(e) => setMNotes(e.target.value)}
-                    placeholder="Dodatkowe informacje…"
-                  />
-                </div>
+      {/* Client Form Dialog */}
+      <Dialog open={showClientDialog} onOpenChange={setShowClientDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {editingClient ? 'Edytuj klienta' : 'Dodaj nowego klienta'}
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={clientForm.handleSubmit(onSubmitClient)} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Nazwa *</Label>
+                <Input
+                  {...clientForm.register('name')}
+                  placeholder="Nazwa firmy"
+                />
+                {clientForm.formState.errors.name && (
+                  <p className="text-sm text-error-600">{clientForm.formState.errors.name.message}</p>
+                )}
               </div>
-
-              <div className="mt-6 flex justify-end gap-3">
-                <Button variant="outline" onClick={() => setShowAddForm(false)}>Anuluj</Button>
-                <Button onClick={submitAddMachine} disabled={saving}>
-                  {saving ? 'Zapisywanie…' : 'Dodaj maszynę'}
-                </Button>
+              <div className="space-y-2">
+                <Label>Kod klienta *</Label>
+                <Input
+                  {...clientForm.register('code2')}
+                  placeholder="AB"
+                  maxLength={2}
+                  className="uppercase"
+                />
+                {clientForm.formState.errors.code2 && (
+                  <p className="text-sm text-error-600">{clientForm.formState.errors.code2.message}</p>
+                )}
               </div>
             </div>
+
+            <div className="space-y-2">
+              <Label>NIP *</Label>
+              <Input {...clientForm.register('nip')} placeholder="1234567890" />
+              {clientForm.formState.errors.nip && (
+                <p className="text-sm text-error-600">{clientForm.formState.errors.nip.message}</p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Telefon</Label>
+                <Input {...clientForm.register('phone')} placeholder="+48 600 000 000" />
+              </div>
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input {...clientForm.register('email')} placeholder="biuro@firma.pl" />
+                {clientForm.formState.errors.email && (
+                  <p className="text-sm text-error-600">{clientForm.formState.errors.email.message}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Adres</Label>
+              <Input {...clientForm.register('address')} placeholder="ul. Przykładowa 1, 00-000 Miasto" />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4">
+              <Button type="button" variant="outline" onClick={() => setShowClientDialog(false)}>
+                Anuluj
+              </Button>
+              <Button type="submit" disabled={clientForm.formState.isSubmitting}>
+                {editingClient ? 'Zapisz zmiany' : 'Dodaj klienta'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Machines Dialog */}
+      <Dialog open={showMachinesDialog} onOpenChange={setShowMachinesDialog}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Maszyny — {selectedClient?.name}</DialogTitle>
+          </DialogHeader>
+
+          {!showMachineForm && (
+            <div className="flex justify-end">
+              <Button onClick={() => setShowMachineForm(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Dodaj maszynę
+              </Button>
+            </div>
           )}
-        </div>
-      </Overlay>
+
+          {/* Machines list */}
+          {!showMachineForm && (
+            <div className="mt-4">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nazwa</TableHead>
+                    <TableHead>Lokalizacja</TableHead>
+                    <TableHead>Uwagi</TableHead>
+                    <TableHead className="text-right">Akcje</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {machines.map((m) => (
+                    <TableRow key={m.id}>
+                      <TableCell className="font-medium">{m.name}</TableCell>
+                      <TableCell>{m.location || '—'}</TableCell>
+                      <TableCell>{m.notes || '—'}</TableCell>
+                      <TableCell className="text-right">{/* future actions */}</TableCell>
+                    </TableRow>
+                  ))}
+                  {machines.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-gray-500">
+                        Brak maszyn
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          {/* Add machine form */}
+          {showMachineForm && (
+            <form onSubmit={machineForm.handleSubmit(onSubmitMachine)} className="space-y-4 mt-2">
+              <div className="space-y-2">
+                <Label>Nazwa *</Label>
+                <Input {...machineForm.register('name')} placeholder="Trak A" />
+                {machineForm.formState.errors.name && (
+                  <p className="text-sm text-error-600">{machineForm.formState.errors.name.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Lokalizacja</Label>
+                <Input {...machineForm.register('location')} placeholder="Hala produkcyjna A" />
+              </div>
+              <div className="space-y-2">
+                <Label>Uwagi</Label>
+                <textarea
+                  {...machineForm.register('notes')}
+                  rows={3}
+                  className="flex w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  placeholder="Dodatkowe informacje..."
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowMachineForm(false);
+                    machineForm.reset({ name: '', location: '', notes: '' });
+                  }}
+                >
+                  Anuluj
+                </Button>
+                <Button type="submit">Dodaj maszynę</Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
