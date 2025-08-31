@@ -251,3 +251,74 @@ export async function createMachine(input: {
   if (error) throw error;
   return data;
 }
+
+// ---- WZ/PZ: lists -----------------------------------------------------------
+export async function listDocs(params?: {
+  q?: string;                 // search by human_id
+  clientId?: string | null;   // filter by client
+  status?: 'open' | 'closed' | 'all';
+  type?: 'WZ' | 'PZ' | 'all';
+  limit?: number;
+}) {
+  const { q, clientId, status = 'all', type = 'all', limit } = params || {};
+  let query = supabase
+    .from('wzpz_docs')
+    .select('id, type, client_id, human_id, status, created_at, client:clients(id, name, code2)')
+    .order('created_at', { ascending: false });
+
+  if (clientId) query = query.eq('client_id', clientId);
+  if (status !== 'all') query = query.eq('status', status);
+  if (type !== 'all') query = query.eq('type', type);
+  if (q && q.trim()) query = query.ilike('human_id', `%${q.trim()}%`);
+  if (limit) query = query.limit(limit);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listDocsForClient(clientId: string, limit = 50) {
+  return listDocs({ clientId, limit });
+}
+
+// ---- WZ/PZ: create/close ----------------------------------------------------
+export async function createWZPZDoc(input: { type: 'WZ' | 'PZ'; client_id: string }) {
+  // uses RPC to ensure human_id + seq are allocated atomically
+  const { data, error } = await supabase.rpc('wzpz_create_doc', {
+    p_type: input.type,
+    p_client_id: input.client_id,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function closeWZPZDoc(docId: string) {
+  const { data, error } = await supabase
+    .from('wzpz_docs')
+    .update({ status: 'closed', closed_at: new Date().toISOString() })
+    .eq('id', docId)
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+// ---- WZ/PZ items ------------------------------------------------------------
+export async function addBladeToDoc(docId: string, bladeId: string) {
+  const { data, error } = await supabase
+    .from('wzpz_items')
+    .insert({ doc_id: docId, blade_id: bladeId })
+    .select('doc_id, blade_id')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function listDocItems(docId: string) {
+  const { data, error } = await supabase
+    .from('wzpz_items')
+    .select('blade:blades(id, blade_code, width_mm, thickness_mm, length_mm, status)')
+    .eq('doc_id', docId);
+  if (error) throw error;
+  return data ?? [];
+}
