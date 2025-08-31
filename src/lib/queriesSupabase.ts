@@ -216,11 +216,10 @@ export async function getLastST1(blade_id: string) {
   return data?.[0] ?? null;
 }
 
-// READ all machines for a client
 export async function listMachinesByClient(clientId: string) {
   const { data, error } = await supabase
     .from('machines')
-    .select('id, client_id, name, location, notes, created_at, is_active')
+    .select('id, client_id, name, code, location, notes, created_at')
     .eq('client_id', clientId)
     .order('created_at', { ascending: false });
 
@@ -228,16 +227,17 @@ export async function listMachinesByClient(clientId: string) {
   return data ?? [];
 }
 
-// CREATE a machine (schema-safe: client_id/name required; others optional)
 export async function createMachine(input: {
   client_id: string;
   name: string;
+  code?: string | null;
   location?: string | null;
   notes?: string | null;
 }) {
   const payload = {
     client_id: input.client_id,
     name: input.name.trim(),
+    code: input.code?.trim() || null,
     location: input.location?.trim() || null,
     notes: input.notes?.trim() || null,
   };
@@ -245,7 +245,7 @@ export async function createMachine(input: {
   const { data, error } = await supabase
     .from('machines')
     .insert(payload)
-    .select('id, client_id, name, location, notes, created_at, is_active')
+    .select('id, client_id, name, code, location, notes, created_at')
     .single();
 
   if (error) throw error;
