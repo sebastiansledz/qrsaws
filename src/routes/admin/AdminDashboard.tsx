@@ -154,7 +154,7 @@ export const AdminDashboard: React.FC = () => {
       >
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Panel Administratora</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-2 text-gray-600">
             Witaj, {user?.email ?? '—'} – zarządzaj systemem QRSaws
           </p>
         </div>
