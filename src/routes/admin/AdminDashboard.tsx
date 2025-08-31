@@ -175,7 +175,7 @@ export const AdminDashboard: React.FC = () => {
 
       {/* Tabs (full width + restored spacing under tabs) */}
       <Tabs defaultValue="dashboard" className="w-full">
-        <TabsList className="grid w-full grid-cols-5 mb-6">
+        <TabsList className="grid w-full grid-cols-6 mb-6">
           <TabsTrigger value="dashboard" className="w-full">Pulpit</TabsTrigger>
           <TabsTrigger value="clients" className="w-full">Klienci</TabsTrigger>
           <TabsTrigger value="blades" className="w-full">Piły</TabsTrigger>
