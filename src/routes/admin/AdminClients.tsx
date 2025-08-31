@@ -166,7 +166,7 @@ export const AdminClients: React.FC = () => {
       >
         <h2 className="text-2xl font-bold text-gray-900">Zarządzanie klientami</h2>
         <Button
-          onClick=onClick={handleAddClient}
+          onClick={handleAddClient}
           className="bg-emerald-600 hover:bg-emerald-700 text-white"
         >
           <Plus className="h-4 w-4 mr-2" />
