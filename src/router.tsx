@@ -20,6 +20,8 @@ import { BladeDetails as AdminBladeDetails } from './routes/admin/BladeDetails';
 import AdminBladeNew from './routes/admin/BladeNew';
 import { AdminDashboard } from './routes/admin/AdminDashboard';
 import { PrintLabel } from './routes/print/PrintLabel';
+import AdminDocs from './routes/admin/AdminDocs';
+import DocDetails from './routes/admin/DocDetails';
 
 export const router = createBrowserRouter([
   {
