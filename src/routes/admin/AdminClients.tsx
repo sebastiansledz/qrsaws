@@ -12,8 +12,6 @@ import { supabase } from '../../lib/supabase';
 import { useNotify } from '../../lib/notify';
 import { listMachinesByClient, createMachine } from '../../lib/queriesSupabase';
 
-// (If you already have a nicer dialog in your UI kit, this minimal one
-//  respects your current design. No styling changes beyond your tokens.)
 const Overlay: React.FC<React.PropsWithChildren<{ open: boolean; onClose: () => void }>> = ({ open, onClose, children }) => {
   if (!open) return null;
   return (
@@ -40,9 +38,9 @@ type MachineRow = {
   id: string;
   client_id: string;
   name: string;
+  code: string | null;
   location: string | null;
   notes: string | null;
-  is_active?: boolean | null;
   created_at: string;
 };
 
@@ -96,7 +94,6 @@ export const AdminClients: React.FC = () => {
     );
   }, [rows, q]);
 
-  // Open Machines dialog for a client
   const openMachines = async (client: ClientRow) => {
     setSelectedClient(client);
     setMachines([]);
@@ -138,8 +135,7 @@ export const AdminClients: React.FC = () => {
         location: mLocation.trim() || null,
         notes: mNotes.trim() || null,
       });
-      // Optimistically update UI
-      setMachines(prev => [row as MachineRow, ...prev]);
+      setMachines(prev => [row as MachineRow, ...prev]); // optimistic
       setShowAddForm(false);
       setMName(''); setMLocation(''); setMNotes('');
       success('Maszyna została dodana');
@@ -153,10 +149,9 @@ export const AdminClients: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-20 md:pb-6">
+      <PageHeader title="Panel Administratora" subtitle="Klienci" />
 
-      {/* Constrained content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-        {/* Header row (title + search) */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -169,7 +164,6 @@ export const AdminClients: React.FC = () => {
           </div>
         </motion.div>
 
-        {/* Clients table */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <Card>
             <CardHeader>
@@ -192,11 +186,7 @@ export const AdminClients: React.FC = () => {
                       <TableCell>{c.code2 ?? '—'}</TableCell>
                       <TableCell>{c.nip ?? '—'}</TableCell>
                       <TableCell className="text-right space-x-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openMachines(c)}
-                        >
+                        <Button size="sm" variant="outline" onClick={() => openMachines(c)}>
                           <Wrench className="h-4 w-4 mr-2" />
                           Maszyny
                         </Button>
@@ -209,9 +199,7 @@ export const AdminClients: React.FC = () => {
                   ))}
                   {!filtered.length && !loading && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-gray-500">
-                        Brak klientów
-                      </TableCell>
+                      <TableCell colSpan={4} className="text-center text-gray-500">Brak klientów</TableCell>
                     </TableRow>
                   )}
                 </TableBody>
@@ -221,18 +209,12 @@ export const AdminClients: React.FC = () => {
         </motion.div>
       </div>
 
-      {/* Machines dialog – UI preserved */}
+      {/* Machines dialog */}
       <Overlay open={machinesOpen} onClose={closeMachines}>
         <div className="p-6 sm:p-8">
           <div className="flex items-center justify-between">
-            <h3 className="text-2xl font-bold">
-              Maszyny{selectedClient ? ` — ${selectedClient.name}` : ''}
-            </h3>
-            <button
-              className="rounded-full p-2 hover:bg-gray-100"
-              aria-label="Zamknij"
-              onClick={closeMachines}
-            >
+            <h3 className="text-2xl font-bold">Maszyny{selectedClient ? ` — ${selectedClient.name}` : ''}</h3>
+            <button className="rounded-full p-2 hover:bg-gray-100" aria-label="Zamknij" onClick={closeMachines}>
               <X className="h-5 w-5" />
             </button>
           </div>
@@ -244,7 +226,6 @@ export const AdminClients: React.FC = () => {
             </Button>
           </div>
 
-          {/* List */}
           <div className="mt-6">
             <Table>
               <TableHeader>
@@ -266,9 +247,7 @@ export const AdminClients: React.FC = () => {
                       <TableCell className="font-medium">{m.name}</TableCell>
                       <TableCell>{m.location ?? '—'}</TableCell>
                       <TableCell>{m.notes ?? '—'}</TableCell>
-                      <TableCell className="text-right">
-                        {/* place for future actions */}
-                      </TableCell>
+                      <TableCell className="text-right">{/* future actions */}</TableCell>
                     </TableRow>
                   ))
                 ) : (
@@ -280,7 +259,6 @@ export const AdminClients: React.FC = () => {
             </Table>
           </div>
 
-          {/* Add form (slide-in block; same controls you use elsewhere) */}
           {showAddForm && (
             <div className="mt-8 rounded-2xl border border-gray-200 bg-gray-50 p-6">
               <h4 className="text-lg font-semibold mb-4">Dodaj nową maszynę</h4>
@@ -306,9 +284,7 @@ export const AdminClients: React.FC = () => {
               </div>
 
               <div className="mt-6 flex justify-end gap-3">
-                <Button variant="outline" onClick={() => { setShowAddForm(false); }}>
-                  Anuluj
-                </Button>
+                <Button variant="outline" onClick={() => setShowAddForm(false)}>Anuluj</Button>
                 <Button onClick={submitAddMachine} disabled={saving}>
                   {saving ? 'Zapisywanie…' : 'Dodaj maszynę'}
                 </Button>
