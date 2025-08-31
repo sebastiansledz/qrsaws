@@ -145,7 +145,7 @@ export default function AdminDocs() {
       <div className="bg-transparent">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="py-6">
-            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-gray-900">
+            <h1 className="text-3xl font-bold tracking-tight">
               Panel Administratora
             </h1>
             <p className="mt-2 text-gray-600">
@@ -153,24 +153,17 @@ export default function AdminDocs() {
             </p>
 
             <div className="mt-4 flex items-center gap-3">
-              <Button
-                type="button"
-                onClick={() => nav('/scan')}
-                className="bg-primary-600 hover:bg-primary-700 text-white"
-              >
-                <QrCode className="h-4 w-4 mr-2" />
-                Skanuj ostrze
-              </Button>
-
-              {isAdmin && (
-                <Button
-                  type="button"
-                  onClick={onOpenCreate}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                >
-                  <FilePlus2 className="h-4 w-4 mr-2" />
-                  Dodaj dokument
-                </Button>
+          <Button onClick={() => navigate('/scan')} className="gap-2">
+            <QrCode className="h-4 w-4" />
+            Skanuj ostrze
+          </Button>
+          <Button
+            onClick={() => navigate('/admin/blade/new')}
+            className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            <Plus className="h-4 w-4" />
+            Dodaj piłę
+          </Button>
               )}
             </div>
           </div>
