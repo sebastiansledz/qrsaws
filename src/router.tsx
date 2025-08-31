@@ -56,6 +56,7 @@ export const router = createBrowserRouter([
       </AppErrorBoundary>
     ),
     children: [
+      // -------------------- ADMIN AREA --------------------
       {
         path: '/admin',
         element: <AdminApp />,
@@ -96,8 +97,29 @@ export const router = createBrowserRouter([
               </AppErrorBoundary>
             ),
           },
+          // NEW: Admin WZ/PZ list & details
+          {
+            path: 'docs',
+            element: <AdminDocs />,
+            errorElement: (
+              <AppErrorBoundary>
+                <div className="p-6">Błąd w dokumentach.</div>
+              </AppErrorBoundary>
+            ),
+          },
+          {
+            path: 'docs/:id',
+            element: <DocDetails />,
+            errorElement: (
+              <AppErrorBoundary>
+                <div className="p-6">Błąd w szczegółach dokumentu.</div>
+              </AppErrorBoundary>
+            ),
+          },
         ],
       },
+
+      // -------------------- CLIENT AREA --------------------
       {
         path: '/app',
         element: <ClientApp />,
@@ -138,6 +160,25 @@ export const router = createBrowserRouter([
               </AppErrorBoundary>
             ),
           },
+          // NEW: Client WZ/PZ list & details (same components; RLS hides others & no create btn)
+          {
+            path: 'docs',
+            element: <AdminDocs />,
+            errorElement: (
+              <AppErrorBoundary>
+                <div className="p-6">Błąd w dokumentach.</div>
+              </AppErrorBoundary>
+            ),
+          },
+          {
+            path: 'docs/:id',
+            element: <DocDetails />,
+            errorElement: (
+              <AppErrorBoundary>
+                <div className="p-6">Błąd w szczegółach dokumentu.</div>
+              </AppErrorBoundary>
+            ),
+          },
           {
             path: 'history',
             element: <ServiceHistory />,
@@ -167,7 +208,11 @@ export const router = createBrowserRouter([
           },
           {
             path: 'reports',
-            element: <div className="p-8 text-center"><h1 className="text-2xl font-bold">Raporty - Wkrótce</h1></div>,
+            element: (
+              <div className="p-8 text-center">
+                <h1 className="text-2xl font-bold">Raporty - Wkrótce</h1>
+              </div>
+            ),
             errorElement: (
               <AppErrorBoundary>
                 <div className="p-6">Błąd w raportach.</div>
@@ -176,6 +221,8 @@ export const router = createBrowserRouter([
           },
         ],
       },
+
+      // Standalone scanner routes (kept as-is)
       {
         path: '/scan',
         element: <ScanBlade />,
@@ -196,13 +243,13 @@ export const router = createBrowserRouter([
       },
     ],
   },
+
   // Catch-all redirect
   {
     path: '*',
     element: <Navigate to="/" replace />,
   },
-]
-)
+]);
 
 export function AppRouter() {
   return <RouterProvider router={router} />;
