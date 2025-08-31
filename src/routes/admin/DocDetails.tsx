@@ -23,7 +23,6 @@ type Doc = {
   human_id: string;
   status: DocStatus;
   created_at: string;
-  // nested
   client?: { id: string; name: string; code2: string | null } | null;
   items?: Array<{
     blade_id: string;
@@ -41,6 +40,11 @@ type Doc = {
 
 const isUUID = (v: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+
+const SELECT =
+  'id,type,client_id,human_id,status,created_at,' +
+  'client:clients!wzpz_docs_client_id_fkey(id,name,code2),' +
+  'items:wzpz_items(blade_id,added_at,blade:blades!wzpz_items_blade_id_fkey(id,blade_code,width_mm,thickness_mm,length_mm,status))';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -60,44 +64,32 @@ export default function DocDetails() {
 
   const isOpen = doc?.status === 'open';
 
-  // ---- ONE query with nested relations (reduces concurrent requests) ----
   const fetchDocOnce = useCallback(async (param: string): Promise<Doc | null> => {
-    // Build a single select with FK joins:
-    // - client: clients!wzpz_docs_client_id_fkey
-    // - items: wzpz_items with blade join blades!wzpz_items_blade_id_fkey
-    const SELECT =
-      'id,type,client_id,human_id,status,created_at,' +
-      'client:clients!wzpz_docs_client_id_fkey(id,name,code2),' +
-      'items:wzpz_items(blade_id,added_at,blade:blades!wzpz_items_blade_id_fkey(id,blade_code,width_mm,thickness_mm,length_mm,status))';
-
     if (isUUID(param)) {
-      const { data, error } = await supabase
+      const { data, error: de } = await supabase
         .from('wzpz_docs')
         .select(SELECT)
         .eq('id', param)
         .maybeSingle<Doc>();
-      if (error) throw error;
+      if (de) throw de;
       return data ?? null;
     } else {
-      const { data, error } = await supabase
+      const { data, error: he } = await supabase
         .from('wzpz_docs')
         .select(SELECT)
         .eq('human_id', param)
         .maybeSingle<Doc>();
-      if (error) throw error;
+      if (he) throw he;
       return data ?? null;
     }
   }, []);
 
-  // Tiny retry specifically for preview/network hiccups
   const fetchWithRetry = useCallback(
     async (param: string) => {
       try {
         return await fetchDocOnce(param);
       } catch (e: any) {
-        const msg = String(e?.message || e);
-        if (/failed to fetch|timeout|network/i.test(msg)) {
-          // one short retry
+        if (/failed to fetch|timeout|network/i.test(String(e?.message || e))) {
           await sleep(350);
           return await fetchDocOnce(param);
         }
@@ -107,7 +99,6 @@ export default function DocDetails() {
     [fetchDocOnce]
   );
 
-  // Guard against React 18 StrictMode double-effect in dev
   const didInit = useRef(false);
   useEffect(() => {
     if (didInit.current) return;
@@ -158,7 +149,7 @@ export default function DocDetails() {
     []
   );
 
-  // ---- Actions -----------------------------------------------------------
+  // Actions
   const openAddModal = () => {
     setBladeCode('');
     setAddOpen(true);
@@ -186,7 +177,6 @@ export default function DocDetails() {
       const { error: ie } = await supabase
         .from('wzpz_items')
         .insert({ doc_id: doc.id, blade_id: b.id });
-      // ignore duplicate adds
       if (ie && (ie as any).code !== '23505') throw ie;
 
       success(`Dodano piłę ${b.blade_code} do dokumentu`);
@@ -216,7 +206,7 @@ export default function DocDetails() {
     }
   };
 
-  // ---- UI ---------------------------------------------------------------
+  // UI
   if (loading) {
     return (
       <div className="min-h-[40vh] flex items-center justify-center text-gray-500">
