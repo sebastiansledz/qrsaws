@@ -1,5 +1,4 @@
-// src/routes/admin/DocDetails.tsx
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Plus, Lock, Unlock } from 'lucide-react';
@@ -24,31 +23,34 @@ type Doc = {
   human_id: string;
   status: DocStatus;
   created_at: string;
+  // nested
+  client?: { id: string; name: string; code2: string | null } | null;
+  items?: Array<{
+    blade_id: string;
+    added_at: string;
+    blade: {
+      id: string;
+      blade_code: string;
+      width_mm: number | null;
+      thickness_mm: number | null;
+      length_mm: number | null;
+      status: string | null;
+    } | null;
+  }>;
 };
 
-type ClientLite = { id: string; name: string; code2: string | null };
+const isUUID = (v: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 
-type DocItemRow = {
-  blade_id: string;
-  added_at: string;
-  blades: {
-    id: string;
-    blade_code: string;
-    width_mm: number | null;
-    thickness_mm: number | null;
-    length_mm: number | null;
-    status: string | null;
-  } | null;
-};
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default function DocDetails() {
-  const { id = '' } = useParams();
+  const { id: rawParam = '' } = useParams();
+  const idParam = decodeURIComponent(rawParam);
   const nav = useNavigate();
   const { success, error } = useNotify();
 
   const [doc, setDoc] = useState<Doc | null>(null);
-  const [client, setClient] = useState<ClientLite | null>(null);
-  const [items, setItems] = useState<DocItemRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Add blade modal
@@ -58,48 +60,103 @@ export default function DocDetails() {
 
   const isOpen = doc?.status === 'open';
 
-  // ---- Load data ---------------------------------------------------------
-  const load = useCallback(async () => {
-    if (!id) return;
+  // ---- ONE query with nested relations (reduces concurrent requests) ----
+  const fetchDocOnce = useCallback(async (param: string): Promise<Doc | null> => {
+    // Build a single select with FK joins:
+    // - client: clients!wzpz_docs_client_id_fkey
+    // - items: wzpz_items with blade join blades!wzpz_items_blade_id_fkey
+    const SELECT =
+      'id,type,client_id,human_id,status,created_at,' +
+      'client:clients!wzpz_docs_client_id_fkey(id,name,code2),' +
+      'items:wzpz_items(blade_id,added_at,blade:blades!wzpz_items_blade_id_fkey(id,blade_code,width_mm,thickness_mm,length_mm,status))';
+
+    if (isUUID(param)) {
+      const { data, error } = await supabase
+        .from('wzpz_docs')
+        .select(SELECT)
+        .eq('id', param)
+        .maybeSingle<Doc>();
+      if (error) throw error;
+      return data ?? null;
+    } else {
+      const { data, error } = await supabase
+        .from('wzpz_docs')
+        .select(SELECT)
+        .eq('human_id', param)
+        .maybeSingle<Doc>();
+      if (error) throw error;
+      return data ?? null;
+    }
+  }, []);
+
+  // Tiny retry specifically for preview/network hiccups
+  const fetchWithRetry = useCallback(
+    async (param: string) => {
+      try {
+        return await fetchDocOnce(param);
+      } catch (e: any) {
+        const msg = String(e?.message || e);
+        if (/failed to fetch|timeout|network/i.test(msg)) {
+          // one short retry
+          await sleep(350);
+          return await fetchDocOnce(param);
+        }
+        throw e;
+      }
+    },
+    [fetchDocOnce]
+  );
+
+  // Guard against React 18 StrictMode double-effect in dev
+  const didInit = useRef(false);
+  useEffect(() => {
+    if (didInit.current) return;
+    didInit.current = true;
+
+    let mounted = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const d = await fetchWithRetry(idParam);
+        if (!mounted) return;
+        if (!d) throw new Error('Nie znaleziono dokumentu');
+        setDoc(d);
+      } catch (e: any) {
+        console.error('DocDetails load error', e);
+        error({
+          message: 'TypeError: Failed to fetch',
+          details: String(e?.stack || e?.message || e),
+          hint: '',
+          code: '',
+        } as any);
+      } finally {
+        mounted && setLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [idParam, fetchWithRetry, error]);
+
+  const reloadDoc = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: d, error: de } = await supabase
-        .from('wzpz_docs')
-        .select('id,type,client_id,human_id,status,created_at')
-        .eq('id', id)
-        .single<Doc>();
-      if (de) throw de;
+      const d = await fetchWithRetry(idParam);
+      if (!d) throw new Error('Nie znaleziono dokumentu');
       setDoc(d);
-
-      const { data: c, error: ce } = await supabase
-        .from('clients')
-        .select('id,name,code2')
-        .eq('id', d.client_id)
-        .single<ClientLite>();
-      if (ce) throw ce;
-      setClient(c);
-
-      const { data: it, error: ie } = await supabase
-        .from('wzpz_items')
-        .select('blade_id,added_at,blades(id,blade_code,width_mm,thickness_mm,length_mm,status)')
-        .eq('doc_id', id)
-        .order('added_at', { ascending: true });
-      if (ie) throw ie;
-      setItems((it ?? []) as DocItemRow[]);
     } catch (e) {
-      console.error('DocDetails load error', e);
-      error('Nie udało się wczytać dokumentu');
+      console.error('Reload doc failed', e);
     } finally {
       setLoading(false);
     }
-  }, [id, error]);
+  }, [fetchWithRetry, idParam]);
 
-  useEffect(() => { load(); }, [load]);
-
-  const spec = useMemo(() => {
-    return (b: DocItemRow['blades']) =>
-      b ? `${b.width_mm ?? '—'}×${b.thickness_mm ?? '—'}×${b.length_mm ?? '—'}mm` : '—';
-  }, []);
+  const spec = useMemo(
+    () => (b: Doc['items'][number]['blade'] | null | undefined) =>
+      b ? `${b.width_mm ?? '—'}×${b.thickness_mm ?? '—'}×${b.length_mm ?? '—'}mm` : '—',
+    []
+  );
 
   // ---- Actions -----------------------------------------------------------
   const openAddModal = () => {
@@ -110,31 +167,31 @@ export default function DocDetails() {
   const addBlade = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!doc) return;
-    if (!bladeCode.trim()) return error('Podaj ID piły (blade_code)');
+    const code = bladeCode.trim();
+    if (!code) return error('Podaj ID piły (blade_code)');
     setAdding(true);
     try {
-      // 1) resolve blade by code
       const { data: b, error: be } = await supabase
         .from('blades')
         .select('id, blade_code, client_id')
-        .eq('blade_code', bladeCode.trim())
-        .single();
-      if (be || !b) throw new Error('Nie znaleziono piły o podanym ID');
+        .eq('blade_code', code)
+        .maybeSingle();
+      if (be) throw be;
+      if (!b) throw new Error('Nie znaleziono piły o podanym ID');
 
-      // 2) ensure blade belongs to doc client
       if (b.client_id !== doc.client_id) {
         throw new Error('Ta piła nie należy do klienta z dokumentu');
       }
 
-      // 3) insert row into wzpz_items
       const { error: ie } = await supabase
         .from('wzpz_items')
         .insert({ doc_id: doc.id, blade_id: b.id });
-      if (ie && (ie as any).code !== '23505') throw ie; // ignore duplicate
+      // ignore duplicate adds
+      if (ie && (ie as any).code !== '23505') throw ie;
 
       success(`Dodano piłę ${b.blade_code} do dokumentu`);
       setAddOpen(false);
-      await load();
+      await reloadDoc();
     } catch (e: any) {
       console.error('Add blade failed', e);
       error(e?.message || 'Nie udało się dodać piły');
@@ -152,7 +209,7 @@ export default function DocDetails() {
         .eq('id', doc.id);
       if (ue) throw ue;
       success('Dokument został zamknięty');
-      await load();
+      await reloadDoc();
     } catch (e) {
       console.error('Close doc failed', e);
       error('Nie udało się zamknąć dokumentu');
@@ -189,9 +246,7 @@ export default function DocDetails() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
-              <h1 className="text-2xl md:text-3xl font-extrabold">
-                WZ/PZ
-              </h1>
+              <h1 className="text-2xl md:text-3xl font-extrabold">WZ/PZ</h1>
               <p className="text-gray-600">{doc.human_id}</p>
             </div>
           </div>
@@ -218,7 +273,7 @@ export default function DocDetails() {
               <div>
                 <div className="text-sm text-gray-500">Klient</div>
                 <div className="font-medium">
-                  {client ? `${client.name}${client.code2 ? ` (${client.code2})` : ''}` : '—'}
+                  {doc.client ? `${doc.client.name}${doc.client.code2 ? ` (${doc.client.code2})` : ''}` : '—'}
                 </div>
               </div>
               <div>
@@ -278,14 +333,14 @@ export default function DocDetails() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.length === 0 ? (
+                  {!doc.items?.length ? (
                     <TableRow>
                       <TableCell colSpan={3} className="text-center text-gray-500">
                         Brak pozycji
                       </TableCell>
                     </TableRow>
                   ) : (
-                    items.map((row, i) => (
+                    doc.items.map((row, i) => (
                       <motion.tr
                         key={row.blade_id + i}
                         initial={{ opacity: 0 }}
@@ -293,9 +348,9 @@ export default function DocDetails() {
                         transition={{ delay: i * 0.03 }}
                         className="hover:bg-muted/40"
                       >
-                        <TableCell className="font-medium">{row.blades?.blade_code ?? '—'}</TableCell>
-                        <TableCell>{spec(row.blades)}</TableCell>
-                        <TableCell>{row.blades?.status ?? '—'}</TableCell>
+                        <TableCell className="font-medium">{row.blade?.blade_code ?? '—'}</TableCell>
+                        <TableCell>{spec(row.blade)}</TableCell>
+                        <TableCell>{row.blade?.status ?? '—'}</TableCell>
                       </motion.tr>
                     ))
                   )}
