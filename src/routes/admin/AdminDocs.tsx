@@ -153,23 +153,17 @@ export default function AdminDocs() {
             </p>
 
             <div className="mt-4 flex items-center gap-3">
-                        <Button
+                        <Button onClick={() => navigate('/scan')} className="gap-2">
+            <QrCode className="h-4 w-4" />
+            Skanuj ostrze
+          </Button>
+          <Button
             onClick={() => navigate('/admin/blade/new')}
             className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
           >
             <Plus className="h-4 w-4" />
             Dodaj piłę
           </Button>
-
-              {isAdmin && (
-                <Button
-                  type="button"
-                  onClick={onOpenCreate}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                >
-                  <FilePlus2 className="h-4 w-4 mr-2" />
-                  Dodaj dokument
-                </Button>
               )}
             </div>
           </div>
