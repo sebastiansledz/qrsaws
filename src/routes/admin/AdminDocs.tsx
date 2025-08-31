@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { FilePlus2, Eye, Edit, QrCode } from 'lucide-react';
+import { Plus, FilePlus2, Eye, Edit, QrCode } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
