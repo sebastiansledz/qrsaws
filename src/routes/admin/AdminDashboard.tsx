@@ -1,348 +1,283 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, QrCode, PackagePlus, ExternalLink } from 'lucide-react';
+import {
+  Package,
+  Activity,
+  TrendingUp,
+  Users,
+  Octagon,
+  Trash2,
+  QrCode,
+  Plus,
+} from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Button } from '../../components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
-import { Label } from '../../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Input } from '../../components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 
-import { supabase } from '../../lib/supabase';
-import { useNotify } from '../../lib/notify';
 import useAuth from '../../hooks/useAuth';
+import { AdminClients } from './AdminClients';
+import { AdminBlades } from './AdminBlades';
+import { AdminUsers } from './AdminUsers';
+import { AdminReports } from './AdminReports';
+import { supabase } from '../../lib/supabase';
 
-type DocType = 'WZ' | 'PZ';
-type DocStatus = 'open' | 'closed';
+type Client = { id: string; name: string; code2: string | null; nip?: string | null };
 
-type DocRow = {
-  id: string;
-  type: DocType;
-  client_id: string;
-  human_id: string;
-  status: DocStatus;
-  created_at: string;
-  client: { id: string; name: string; code2: string | null } | null;
+type Buckets = {
+  totalBlades: number;
+  sharp: number;
+  dull: number;
+  regen: number;
+  cracked: number;
+  scrapped: number;
+  other: number;
 };
 
-type ClientLite = { id: string; name: string; code2: string | null };
-
-const SELECT =
-  'id,type,client_id,human_id,status,created_at,' +
-  'client:clients!wzpz_docs_client_id_fkey(id,name,code2)';
-
-const pad = (n: number, len: number) => String(n).padStart(len, '0');
-
-export default function AdminDocs() {
-  const nav = useNavigate();
-  const { success, error } = useNotify();
+export const AdminDashboard: React.FC = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
 
-  const [docs, setDocs] = useState<DocRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<Buckets>({
+    totalBlades: 0,
+    sharp: 0,
+    dull: 0,
+    regen: 0,
+    cracked: 0,
+    scrapped: 0,
+    other: 0,
+  });
+  const [topClients, setTopClients] = useState<
+    Array<Client & { counters: { bladesTotal: number; sharp: number; dull: number; regen: number } }>
+  >([]);
 
-  // Create modal
-  const [open, setOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [docType, setDocType] = useState<DocType>('WZ');
-  const [clientId, setClientId] = useState<string>('');
-  const [clients, setClients] = useState<ClientLite[]>([]);
-  const [filter, setFilter] = useState('');
-
-  const filteredDocs = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return docs;
-    return docs.filter(
-      (d) =>
-        d.human_id.toLowerCase().includes(q) ||
-        (d.client?.name?.toLowerCase().includes(q) ?? false) ||
-        (d.client?.code2?.toLowerCase().includes(q) ?? false)
-    );
-  }, [docs, filter]);
-
-  const loadDocs = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data, error: de } = await supabase
-        .from('wzpz_docs')
-        .select(SELECT)
-        .order('created_at', { ascending: false });
-      if (de) throw de;
-      setDocs((data ?? []) as DocRow[]);
-    } catch (e) {
-      console.error('AdminDocs load error', e);
-      error('Nie udało się wczytać dokumentów');
-    } finally {
-      setLoading(false);
-    }
-  }, [error]);
-
-  const loadClients = useCallback(async () => {
-    const { data, error: ce } = await supabase
-      .from('clients')
-      .select('id,name,code2')
-      .order('name', { ascending: true });
-    if (ce) throw ce;
-    setClients((data ?? []) as ClientLite[]);
-  }, []);
-
-  const didInit = useRef(false);
   useEffect(() => {
-    if (didInit.current) return;
-    didInit.current = true;
+    let cancelled = false;
+
     (async () => {
       try {
-        await Promise.all([loadDocs(), loadClients()]);
+        const [{ data: clients, error: cErr }, { data: blades, error: bErr }] = await Promise.all([
+          supabase.from('clients').select('id, name, code2, nip').order('name'),
+          supabase.from('blades').select('id, client_id, status'),
+        ]);
+        if (cErr) throw cErr;
+        if (bErr) throw bErr;
+
+        const buckets: Buckets = {
+          totalBlades: 0,
+          sharp: 0,
+          dull: 0,
+          regen: 0,
+          cracked: 0,
+          scrapped: 0,
+          other: 0,
+        };
+        const DULL = new Set(['c1', 'c2']);
+
+        const byClient: Record<string, { total: number; sharp: number; dull: number; regen: number }> = {};
+
+        for (const b of blades ?? []) {
+          buckets.totalBlades++;
+          const s = (b.status ?? 'c0') as string;
+
+          if (s === 'c0') buckets.sharp++;
+          else if (DULL.has(s)) buckets.dull++;
+          else if (s === 'c13') buckets.regen++;
+          else if (s === 'c4') buckets.cracked++;
+          else if (s === 'c12') buckets.scrapped++;
+          else buckets.other++;
+
+          const cid = b.client_id ?? '_none';
+          if (!byClient[cid]) byClient[cid] = { total: 0, sharp: 0, dull: 0, regen: 0 };
+          byClient[cid].total++;
+          if (s === 'c0') byClient[cid].sharp++;
+          else if (DULL.has(s)) byClient[cid].dull++;
+          else if (s === 'c13') byClient[cid].regen++;
+        }
+
+        const tc = Object.entries(byClient)
+          .filter(([id]) => id !== '_none')
+          .map(([id, c]) => {
+            const row = (clients ?? []).find((x) => x.id === id) as Client | undefined;
+            return {
+              id,
+              name: row?.name ?? id,
+              code2: row?.code2 ?? '',
+              nip: row?.nip ?? '',
+              counters: {
+                bladesTotal: c.total,
+                sharp: c.sharp,
+                dull: c.dull,
+                regen: c.regen,
+              },
+            };
+          })
+          .sort((a, b) => b.counters.bladesTotal - a.counters.bladesTotal)
+          .slice(0, 10);
+
+        if (!cancelled) {
+          setStats(buckets);
+          setTopClients(tc);
+        }
       } catch (e) {
-        console.error(e);
+        console.error('AdminDashboard load error', e);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [loadDocs, loadClients]);
 
-  async function createDocument(e: React.FormEvent) {
-    e.preventDefault();
-    if (!clientId) return error('Wybierz klienta');
-    setSaving(true);
-    try {
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = now.getMonth() + 1;
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-      // next seq for scope (type, client, year, month)
-      const { data: seqRow, error: se } = await supabase
-        .from('wzpz_docs')
-        .select('seq')
-        .eq('type', docType)
-        .eq('client_id', clientId)
-        .eq('year', year)
-        .eq('month', month)
-        .order('seq', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (se) throw se;
-      const seq = (seqRow?.seq ?? 0) + 1;
-
-      const cli = clients.find((c) => c.id === clientId);
-      const code2 = cli?.code2 || 'XX';
-      const human_id = `${docType}/${code2}/${year}/${pad(month, 2)}/${pad(seq, 3)}`;
-
-      const { data: u, error: ue } = await supabase.auth.getUser();
-      if (ue) throw ue;
-      const created_by = u.user?.id ?? null;
-
-      const { data: ins, error: ie } = await supabase
-        .from('wzpz_docs')
-        .insert({
-          type: docType,
-          client_id: clientId,
-          seq,
-          year,
-          month,
-          human_id,
-          created_by,
-          status: 'open',
-        })
-        .select('id')
-        .single();
-      if (ie) throw ie;
-
-      success(`Utworzono dokument ${human_id}`);
-      setOpen(false);
-      setClientId('');
-      setDocType('WZ');
-      // go to details
-      nav(`/admin/docs/${ins.id}`);
-    } catch (e: any) {
-      console.error('Create doc failed', e);
-      error(e?.message || 'Nie udało się utworzyć dokumentu');
-    } finally {
-      setSaving(false);
-    }
-  }
+  const tiles = [
+    { title: 'Wszystkie piły', value: stats.totalBlades, icon: Package, color: 'text-primary-600', bg: 'bg-primary-50' },
+    { title: 'Ostre (c0)', value: stats.sharp, icon: Activity, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { title: 'Tępe (c1–c2)', value: stats.dull, icon: TrendingUp, color: 'text-amber-600', bg: 'bg-amber-50' },
+    { title: 'Do regeneracji (c13)', value: stats.regen, icon: Users, color: 'text-cyan-600', bg: 'bg-cyan-50' },
+    { title: 'Pęknięte (c4)', value: stats.cracked, icon: Octagon, color: 'text-rose-600', bg: 'bg-rose-50' },
+    { title: 'Na złom (c12)', value: stats.scrapped, icon: Trash2, color: 'text-slate-600', bg: 'bg-slate-50' },
+  ];
 
   return (
-    <div className="space-y-6">
-      {/* ======== COPIED HEADER (1:1 with Blades screen) ======== */}
-      <div className="bg-transparent">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-6">
-            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">Panel Administratora</h1>
-            <p className="mt-2 text-gray-600">
-              Witaj, {user?.email ?? '—'} – zarządzaj systemem QRSaws
-            </p>
-
-            <div className="mt-6 flex items-center gap-4">
-              <Button size="lg" className="bg-blue-600 hover:bg-blue-700" onClick={() => nav('/scan')}>
-                <QrCode className="h-5 w-5 mr-2" />
-                Skanuj ostrze
-              </Button>
-              <Button
-                size="lg"
-                className="bg-emerald-600 hover:bg-emerald-700"
-                onClick={() => nav('/admin/blade/new')}
-              >
-                <PackagePlus className="h-5 w-5 mr-2" />
-                Dodaj piłę
-              </Button>
-            </div>
-          </div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+      {/* Header with actions (animated like Reports) */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25 }}
+        className="flex flex-col gap-4"
+      >
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Panel Administratora</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Witaj, {user?.email ?? '—'} – zarządzaj systemem QRSaws
+          </p>
         </div>
-      </div>
-      {/* ======================================================= */}
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => navigate('/scan')} className="gap-2">
+            <QrCode className="h-4 w-4" />
+            Skanuj ostrze
+          </Button>
+          <Button
+            onClick={() => navigate('/admin/blade/new')}
+            className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            <Plus className="h-4 w-4" />
+            Dodaj piłę
+          </Button>
+        </div>
+      </motion.div>
 
-      {/* Filters + list (same layout as blades) */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Filtry i wyszukiwanie</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2 md:col-span-2">
-              <Label>Szukaj</Label>
-              <Input
-                placeholder="ID dokumentu lub klient…"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              />
-            </div>
-            <div className="flex items-end justify-end">
-              <Button onClick={() => setOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Dodaj dokument
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Tabs (full width + restored spacing under tabs) */}
+      <Tabs defaultValue="dashboard" className="w-full">
+        <TabsList className="grid w-full grid-cols-5 mb-6">
+          <TabsTrigger value="dashboard" className="w-full">Pulpit</TabsTrigger>
+          <TabsTrigger value="clients" className="w-full">Klienci</TabsTrigger>
+          <TabsTrigger value="blades" className="w-full">Piły</TabsTrigger>
+          <TabsTrigger value="users" className="w-full">Użytkownicy</TabsTrigger>
+          <TabsTrigger value="reports" className="w-full">Raporty</TabsTrigger>
+        </TabsList>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Lista dokumentów</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Numer</TableHead>
-                  <TableHead>Typ</TableHead>
-                  <TableHead>Klient</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Data utworzenia</TableHead>
-                  <TableHead className="text-right">Akcje</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center text-gray-500">
-                      Ładowanie…
-                    </TableCell>
-                  </TableRow>
-                ) : filteredDocs.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center text-gray-500">
-                      Brak dokumentów
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredDocs.map((d, i) => (
-                    <motion.tr
-                      key={d.id}
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.03 }}
-                      className="hover:bg-muted/40 cursor-pointer"
-                      onClick={() => nav(`/admin/docs/${d.id}`)}
-                    >
-                      <TableCell className="font-medium">{d.human_id}</TableCell>
-                      <TableCell>{d.type}</TableCell>
-                      <TableCell>
-                        {d.client ? `${d.client.name}${d.client.code2 ? ` (${d.client.code2})` : ''}` : '—'}
-                      </TableCell>
-                      <TableCell>
-                        {d.status === 'open' ? (
-                          <span className="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
-                            Otwarte
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-                            Zamknięte
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell>{new Date(d.created_at).toLocaleString()}</TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            nav(`/admin/docs/${d.id}`);
-                          }}
-                        >
-                          <ExternalLink className="h-4 w-4 mr-2" />
-                          Podgląd
-                        </Button>
-                      </TableCell>
-                    </motion.tr>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Create document dialog */}
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg" onOpenAutoFocus={(e) => e.preventDefault()}>
-          <DialogHeader>
-            <DialogTitle>Dodaj dokument</DialogTitle>
-          </DialogHeader>
-
-          <form onSubmit={createDocument} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Typ *</Label>
-              <Select value={docType} onValueChange={(v: DocType) => setDocType(v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Wybierz typ" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="WZ">WZ — Wydanie zewnętrzne</SelectItem>
-                  <SelectItem value="PZ">PZ — Przyjęcie zewnętrzne</SelectItem>
-                </SelectContent>
-              </Select>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
+          {/* DASHBOARD */}
+          <TabsContent value="dashboard" className="mt-6 space-y-6">
+            {/* KPI tiles with stagger like Reports */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+              {tiles.map((t, i) => (
+                <motion.div
+                  key={t.title}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.06 }}
+                >
+                  <Card className="shadow-sm">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-gray-600">{t.title}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex items-center justify-between">
+                      <div className="text-3xl font-semibold">{loading ? '—' : t.value}</div>
+                      <div className={`p-2 rounded-xl ${t.bg}`}>
+                        <t.icon className={`h-6 w-6 ${t.color}`} />
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
             </div>
 
-            <div className="space-y-2">
-              <Label>Klient *</Label>
-              <Select value={clientId} onValueChange={(v) => setClientId(v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Wybierz klienta" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clients.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name} {c.code2 ? `(${c.code2})` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Top clients table (animated) */}
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Top 10 klientów według liczby pił</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Klient</TableHead>
+                        <TableHead>Kod</TableHead>
+                        <TableHead>NIP</TableHead>
+                        <TableHead className="text-right">Wszystkie piły</TableHead>
+                        <TableHead className="text-right">Ostre</TableHead>
+                        <TableHead className="text-right">Tępe</TableHead>
+                        <TableHead className="text-right">Do regeneracji</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {topClients.map((c) => (
+                        <TableRow key={c.id}>
+                          <TableCell>{c.name}</TableCell>
+                          <TableCell>{c.code2 || '—'}</TableCell>
+                          <TableCell>{c.nip || '—'}</TableCell>
+                          <TableCell className="text-right">{c.counters.bladesTotal}</TableCell>
+                          <TableCell className="text-right">{c.counters.sharp}</TableCell>
+                          <TableCell className="text-right">{c.counters.dull}</TableCell>
+                          <TableCell className="text-right">{c.counters.regen}</TableCell>
+                        </TableRow>
+                      ))}
+                      {!topClients.length && !loading && (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-gray-500">
+                            Brak danych
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </TabsContent>
 
-            <div className="flex justify-end gap-3 pt-2">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                Anuluj
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? 'Tworzenie…' : 'Utwórz'}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
+          {/* CLIENTS */}
+          <TabsContent value="clients" className="mt-6 space-y-6">
+            <AdminClients />
+          </TabsContent>
+
+          {/* BLADES */}
+          <TabsContent value="blades" className="mt-6 space-y-6">
+            <AdminBlades />
+          </TabsContent>
+
+          {/* USERS */}
+          <TabsContent value="users" className="mt-6 space-y-6">
+            <AdminUsers />
+          </TabsContent>
+
+          {/* REPORTS */}
+          <TabsContent value="reports" className="mt-6 space-y-6">
+            <AdminReports />
+          </TabsContent>
+        </motion.div>
+      </Tabs>
     </div>
   );
-}
+};
+
+export default AdminDashboard;

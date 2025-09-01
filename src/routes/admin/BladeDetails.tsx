@@ -206,8 +206,9 @@ export const BladeDetails: React.FC = () => {
           </div>
         }
       />
+
       {/* CONSTRAINED CONTENT */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 pb-20 md:pb-6 mt-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 pb-20 md:pb-6">
         {/* Top: QR (left) + Info (right) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* QR card */}
