@@ -268,6 +268,11 @@ export const AdminDashboard: React.FC = () => {
             <AdminBlades />
           </TabsContent>
 
+          {/* DOCS (WZ/PZ) */}
+<TabsContent value="docs" className="mt-6 space-y-6">
+  <AdminDocs />
+</TabsContent>
+
           {/* USERS */}
           <TabsContent value="users" className="mt-6 space-y-6">
             <AdminUsers />
