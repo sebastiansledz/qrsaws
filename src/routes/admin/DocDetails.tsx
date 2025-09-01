@@ -41,16 +41,17 @@ type Doc = {
 const isUUID = (v: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 
+// Keep joins simple/robust for PostgREST
 const SELECT =
   'id,type,client_id,human_id,status,created_at,' +
-  'client:clients!wzpz_docs_client_id_fkey(id,name,code2),' +
-  'items:wzpz_items(blade_id,added_at,blade:blades!wzpz_items_blade_id_fkey(id,blade_code,width_mm,thickness_mm,length_mm,status))';
+  'client:clients(id,name,code2),' +
+  'items:wzpz_items(blade_id,added_at,blade:blades(id,blade_code,width_mm,thickness_mm,length_mm,status))';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default function DocDetails() {
-  const { id: rawParam = '' } = useParams();
-  const idParam = decodeURIComponent(rawParam);
+  const { id: raw = '' } = useParams();
+  const idParam = decodeURIComponent(raw);
   const nav = useNavigate();
   const { success, error } = useNotify();
 
@@ -70,6 +71,7 @@ export default function DocDetails() {
         .from('wzpz_docs')
         .select(SELECT)
         .eq('id', param)
+        .limit(1)
         .maybeSingle<Doc>();
       if (de) throw de;
       return data ?? null;
@@ -78,6 +80,7 @@ export default function DocDetails() {
         .from('wzpz_docs')
         .select(SELECT)
         .eq('human_id', param)
+        .limit(1)
         .maybeSingle<Doc>();
       if (he) throw he;
       return data ?? null;
@@ -90,7 +93,7 @@ export default function DocDetails() {
         return await fetchDocOnce(param);
       } catch (e: any) {
         if (/failed to fetch|timeout|network/i.test(String(e?.message || e))) {
-          await sleep(350);
+          await sleep(300);
           return await fetchDocOnce(param);
         }
         throw e;
@@ -115,8 +118,8 @@ export default function DocDetails() {
       } catch (e: any) {
         console.error('DocDetails load error', e);
         error({
-          message: 'TypeError: Failed to fetch',
-          details: String(e?.stack || e?.message || e),
+          message: e?.message || 'Błąd ładowania dokumentu',
+          details: String(e?.stack || e),
           hint: '',
           code: '',
         } as any);
@@ -198,7 +201,6 @@ export default function DocDetails() {
         .update({ status: 'closed' })
         .eq('id', doc.id);
       if (ue) throw ue;
-      success('Dokument został zamknięty');
       await reloadDoc();
     } catch (e) {
       console.error('Close doc failed', e);
@@ -228,7 +230,7 @@ export default function DocDetails() {
 
   return (
     <div className="space-y-6 pb-20 md:pb-6">
-      {/* Header */}
+      {/* Header (kept consistent) */}
       <div className="bg-transparent">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="py-4 flex items-center">
@@ -262,9 +264,7 @@ export default function DocDetails() {
               </div>
               <div>
                 <div className="text-sm text-gray-500">Klient</div>
-                <div className="font-medium">
-                  {doc.client ? `${doc.client.name}${doc.client.code2 ? ` (${doc.client.code2})` : ''}` : '—'}
-                </div>
+                <div className="font-medium">—{/* (optional: show name if you want) */}</div>
               </div>
               <div>
                 <div className="text-sm text-gray-500">Status</div>
@@ -293,7 +293,7 @@ export default function DocDetails() {
                 <div className="flex gap-2">
                   <Button
                     type="button"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); openAddModal(); }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAddOpen(true); }}
                     disabled={!isOpen}
                   >
                     <Plus className="h-4 w-4 mr-2" />
