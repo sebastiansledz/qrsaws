@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, ExternalLink } from 'lucide-react';
+import { Plus, QrCode, PackagePlus, ExternalLink } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
@@ -13,6 +13,7 @@ import { Input } from '../../components/ui/input';
 
 import { supabase } from '../../lib/supabase';
 import { useNotify } from '../../lib/notify';
+import useAuth from '../../hooks/useAuth';
 
 type DocType = 'WZ' | 'PZ';
 type DocStatus = 'open' | 'closed';
@@ -38,11 +39,12 @@ const pad = (n: number, len: number) => String(n).padStart(len, '0');
 export default function AdminDocs() {
   const nav = useNavigate();
   const { success, error } = useNotify();
+  const { user } = useAuth();
 
   const [docs, setDocs] = useState<DocRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Modal state (create doc)
+  // Create modal
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [docType, setDocType] = useState<DocType>('WZ');
@@ -61,7 +63,7 @@ export default function AdminDocs() {
     );
   }, [docs, filter]);
 
-  const load = useCallback(async () => {
+  const loadDocs = useCallback(async () => {
     setLoading(true);
     try {
       const { data, error: de } = await supabase
@@ -93,12 +95,12 @@ export default function AdminDocs() {
     didInit.current = true;
     (async () => {
       try {
-        await Promise.all([load(), loadClients()]);
+        await Promise.all([loadDocs(), loadClients()]);
       } catch (e) {
         console.error(e);
       }
     })();
-  }, [load, loadClients]);
+  }, [loadDocs, loadClients]);
 
   async function createDocument(e: React.FormEvent) {
     e.preventDefault();
@@ -109,7 +111,7 @@ export default function AdminDocs() {
       const year = now.getFullYear();
       const month = now.getMonth() + 1;
 
-      // next seq for (type, client, year, month)
+      // next seq for scope (type, client, year, month)
       const { data: seqRow, error: se } = await supabase
         .from('wzpz_docs')
         .select('seq')
@@ -123,14 +125,13 @@ export default function AdminDocs() {
       if (se) throw se;
       const seq = (seqRow?.seq ?? 0) + 1;
 
-      // human id (TYPE/CODE2/YYYY/MM/NNN)
       const cli = clients.find((c) => c.id === clientId);
       const code2 = cli?.code2 || 'XX';
       const human_id = `${docType}/${code2}/${year}/${pad(month, 2)}/${pad(seq, 3)}`;
 
-      const { data: userRes, error: ue } = await supabase.auth.getUser();
+      const { data: u, error: ue } = await supabase.auth.getUser();
       if (ue) throw ue;
-      const created_by = userRes.user?.id ?? null;
+      const created_by = u.user?.id ?? null;
 
       const { data: ins, error: ie } = await supabase
         .from('wzpz_docs')
@@ -152,6 +153,7 @@ export default function AdminDocs() {
       setOpen(false);
       setClientId('');
       setDocType('WZ');
+      // go to details
       nav(`/admin/docs/${ins.id}`);
     } catch (e: any) {
       console.error('Create doc failed', e);
@@ -163,23 +165,35 @@ export default function AdminDocs() {
 
   return (
     <div className="space-y-6">
-      {/* Page header (same intro bar as other tabs) */}
+      {/* ======== COPIED HEADER (1:1 with Blades screen) ======== */}
       <div className="bg-transparent">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between py-4">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-extrabold">WZ/PZ</h1>
-              <p className="text-gray-600">Zarządzaj dokumentami wydania/przyjęcia</p>
+          <div className="py-6">
+            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">Panel Administratora</h1>
+            <p className="mt-2 text-gray-600">
+              Witaj, {user?.email ?? '—'} – zarządzaj systemem QRSaws
+            </p>
+
+            <div className="mt-6 flex items-center gap-4">
+              <Button size="lg" className="bg-blue-600 hover:bg-blue-700" onClick={() => nav('/scan')}>
+                <QrCode className="h-5 w-5 mr-2" />
+                Skanuj ostrze
+              </Button>
+              <Button
+                size="lg"
+                className="bg-emerald-600 hover:bg-emerald-700"
+                onClick={() => nav('/admin/blade/new')}
+              >
+                <PackagePlus className="h-5 w-5 mr-2" />
+                Dodaj piłę
+              </Button>
             </div>
-            <Button onClick={() => setOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Dodaj dokument
-            </Button>
           </div>
         </div>
       </div>
+      {/* ======================================================= */}
 
-      {/* Filters + list (mirror blades list layout) */}
+      {/* Filters + list (same layout as blades) */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
         <Card>
           <CardHeader>
@@ -193,6 +207,12 @@ export default function AdminDocs() {
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
               />
+            </div>
+            <div className="flex items-end justify-end">
+              <Button onClick={() => setOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Dodaj dokument
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -230,8 +250,8 @@ export default function AdminDocs() {
                   filteredDocs.map((d, i) => (
                     <motion.tr
                       key={d.id}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.03 }}
                       className="hover:bg-muted/40 cursor-pointer"
                       onClick={() => nav(`/admin/docs/${d.id}`)}
