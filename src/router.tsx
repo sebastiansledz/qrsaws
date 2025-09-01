@@ -167,11 +167,11 @@ export const router = createBrowserRouter([
           },
           {
             path: 'reports',
-            element={
+            element: (
               <div className="p-8 text-center">
                 <h1 className="text-2xl font-bold">Raporty - Wkrótce</h1>
               </div>
-            },
+            ),
             errorElement: (
               <AppErrorBoundary>
                 <div className="p-6">Błąd w raportach.</div>
