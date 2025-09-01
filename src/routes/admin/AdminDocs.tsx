@@ -164,51 +164,34 @@ export default function AdminDocs() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 mt-6">
+    <div className="space-y-6">
       {/* ======== COPIED HEADER (1:1 with Blades screen) ======== */}
-       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.25 }}
-        className="flex flex-col gap-4"
-      >
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Panel Administratora</h1>
-          <p className="mt-2 text-gray-600">
-            Witaj, {user?.email ?? '—'} – zarządzaj systemem QRSaws
-          </p>
+      <div className="bg-transparent">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="py-6">
+            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">Panel Administratora</h1>
+            <p className="mt-2 text-gray-600">
+              Witaj, {user?.email ?? '—'} – zarządzaj systemem QRSaws
+            </p>
+
+            <div className="mt-6 flex items-center gap-4">
+              <Button size="lg" className="bg-blue-600 hover:bg-blue-700" onClick={() => nav('/scan')}>
+                <QrCode className="h-5 w-5 mr-2" />
+                Skanuj ostrze
+              </Button>
+              <Button
+                size="lg"
+                className="bg-emerald-600 hover:bg-emerald-700"
+                onClick={() => nav('/admin/blade/new')}
+              >
+                <PackagePlus className="h-5 w-5 mr-2" />
+                Dodaj piłę
+              </Button>
+            </div>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => navigate('/scan')} className="gap-2">
-            <QrCode className="h-4 w-4" />
-            Skanuj ostrze
-          </Button>
-          <Button
-            onClick={() => navigate('/admin/blade/new')}
-            className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-          >
-            <Plus className="h-4 w-4" />
-            Dodaj piłę
-          </Button>
-        </div>
-      </motion.div>
-      
-        {/* Tabs (full width + restored spacing under tabs) */}
-      <Tabs defaultValue="dashboard" className="w-full">
-        <TabsList className="grid w-full grid-cols-6 mb-6">
-          <TabsTrigger value="dashboard" className="w-full">Pulpit</TabsTrigger>
-          <TabsTrigger value="clients" className="w-full">Klienci</TabsTrigger>
-          <TabsTrigger value="blades" className="w-full">Piły</TabsTrigger>
-          <TabsTrigger
-          value="docs"
-          className="w-full"
-          onClick={() => navigate('/admin/docs')}
-        >
-          WZ/PZ
-        </TabsTrigger>
-          <TabsTrigger value="users" className="w-full">Użytkownicy</TabsTrigger>
-          <TabsTrigger value="reports" className="w-full">Raporty</TabsTrigger>
-        </TabsList>
+      </div>
+      {/* ======================================================= */}
 
       {/* Filters + list (same layout as blades) */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
