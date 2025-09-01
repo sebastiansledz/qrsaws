@@ -22,6 +22,7 @@ import { AdminClients } from './AdminClients';
 import { AdminBlades } from './AdminBlades';
 import { AdminUsers } from './AdminUsers';
 import { AdminReports } from './AdminReports';
+import AdminDocs from './AdminDocs';
 import { supabase } from '../../lib/supabase';
 
 type Client = { id: string; name: string; code2: string | null; nip?: string | null };
