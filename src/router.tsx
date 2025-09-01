@@ -21,31 +21,18 @@ import AdminBladeNew from './routes/admin/BladeNew';
 import { AdminDashboard } from './routes/admin/AdminDashboard';
 import { PrintLabel } from './routes/print/PrintLabel';
 
+/** NEW **/
+import AdminDocs from './routes/admin/AdminDocs';
+import DocDetails from './routes/admin/DocDetails';
+
 export const router = createBrowserRouter([
-  {
-    path: '/',
-    element: <LandingRedirect />,
-  },
-  {
-    path: '/auth/signin',
-    element: <SignIn />,
-  },
-  {
-    path: '/auth/signup',
-    element: <SignUp />,
-  },
-  {
-    path: '/auth/reset',
-    element: <Reset />,
-  },
-  {
-    path: '/auth/welcome',
-    element: <Welcome />,
-  },
-  {
-    path: '/print/label/:bladeId',
-    element: <PrintLabel />,
-  },
+  { path: '/', element: <LandingRedirect /> },
+  { path: '/auth/signin', element: <SignIn /> },
+  { path: '/auth/signup', element: <SignUp /> },
+  { path: '/auth/reset', element: <Reset /> },
+  { path: '/auth/welcome', element: <Welcome /> },
+  { path: '/print/label/:bladeId', element: <PrintLabel /> },
+
   {
     element: <ProtectedRoute />,
     errorElement: (
@@ -63,10 +50,7 @@ export const router = createBrowserRouter([
           </AppErrorBoundary>
         ),
         children: [
-          {
-            index: true,
-            element: <AdminDashboard />,
-          },
+          { index: true, element: <AdminDashboard /> },
           {
             path: 'blade/:id',
             element: <AdminBladeDetails />,
@@ -94,8 +78,29 @@ export const router = createBrowserRouter([
               </AppErrorBoundary>
             ),
           },
+
+          /** NEW: WZ/PZ list + details **/
+          {
+            path: 'docs',
+            element: <AdminDocs />,
+            errorElement: (
+              <AppErrorBoundary>
+                <div className="p-6">Błąd w dokumentach.</div>
+              </AppErrorBoundary>
+            ),
+          },
+          {
+            path: 'docs/:id',
+            element: <DocDetails />,
+            errorElement: (
+              <AppErrorBoundary>
+                <div className="p-6">Błąd w szczegółach dokumentu.</div>
+              </AppErrorBoundary>
+            ),
+          },
         ],
       },
+
       {
         path: '/app',
         element: <ClientApp />,
@@ -105,10 +110,7 @@ export const router = createBrowserRouter([
           </AppErrorBoundary>
         ),
         children: [
-          {
-            index: true,
-            element: <AppDashboard />,
-          },
+          { index: true, element: <AppDashboard /> },
           {
             path: 'scan',
             element: <ScanBlade />,
@@ -165,7 +167,11 @@ export const router = createBrowserRouter([
           },
           {
             path: 'reports',
-            element: <div className="p-8 text-center"><h1 className="text-2xl font-bold">Raporty - Wkrótce</h1></div>,
+            element={
+              <div className="p-8 text-center">
+                <h1 className="text-2xl font-bold">Raporty - Wkrótce</h1>
+              </div>
+            },
             errorElement: (
               <AppErrorBoundary>
                 <div className="p-6">Błąd w raportach.</div>
@@ -174,33 +180,14 @@ export const router = createBrowserRouter([
           },
         ],
       },
-      {
-        path: '/scan',
-        element: <ScanBlade />,
-        errorElement: (
-          <AppErrorBoundary>
-            <div className="p-6">Błąd w skanerze.</div>
-          </AppErrorBoundary>
-        ),
-      },
-      {
-        path: '/scan/result/:bladeId',
-        element: <ScanAction />,
-        errorElement: (
-          <AppErrorBoundary>
-            <div className="p-6">Błąd w akcji skanowania.</div>
-          </AppErrorBoundary>
-        ),
-      },
+
+      { path: '/scan', element: <ScanBlade /> },
+      { path: '/scan/result/:bladeId', element: <ScanAction /> },
     ],
   },
-  // Catch-all redirect
-  {
-    path: '*',
-    element: <Navigate to="/" replace />,
-  },
-]
-)
+
+  { path: '*', element: <Navigate to="/" replace /> },
+]);
 
 export function AppRouter() {
   return <RouterProvider router={router} />;
