@@ -29,3 +29,4 @@ export async function createMachine(clientId: string, input: {
     .single();
   if (error) throw error;
   return data;
+}
