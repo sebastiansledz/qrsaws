@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { BladeStatusCode, Client, CreateClientData } from '../types';
 
 export async function getMachines(clientId: string) {
   const { data, error } = await supabase
@@ -61,6 +62,96 @@ export async function createMovement(input: {
     .select()
     .single();
   
+  if (error) throw error;
+  return data;
+}
+
+export async function getClients() {
+  const { data, error } = await supabase
+    .from('clients')
+    .select('*')
+    .order('name');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listClientsLite() {
+  const { data, error } = await supabase
+    .from('clients')
+    .select('id, name, code2')
+    .order('name');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createClientSB(clientData: CreateClientData) {
+  const { data, error } = await supabase
+    .from('clients')
+    .insert(clientData)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateClientSB(id: string, updates: Partial<Client>) {
+  const { data, error } = await supabase
+    .from('clients')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function createBlade(bladeData: {
+  blade_code: string;
+  client_id?: string;
+  width_mm?: number;
+  thickness_mm?: number;
+  length_mm?: number;
+  pitch?: string;
+  machine?: string;
+  spec?: string;
+  status?: BladeStatusCode;
+}) {
+  const { data, error } = await supabase
+    .from('blades')
+    .insert(bladeData)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateBlade(id: string, updates: {
+  blade_code?: string;
+  client_id?: string;
+  width_mm?: number;
+  thickness_mm?: number;
+  length_mm?: number;
+  pitch?: string;
+  machine?: string;
+  spec?: string;
+  status?: BladeStatusCode;
+}) {
+  const { data, error } = await supabase
+    .from('blades')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function getBlade(id: string) {
+  const { data, error } = await supabase
+    .from('blades')
+    .select('*')
+    .eq('id', id)
+    .single();
   if (error) throw error;
   return data;
 }
