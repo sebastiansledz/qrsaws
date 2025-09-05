@@ -10,7 +10,7 @@ import { Input } from '../../components/ui/input';
 import { PageHeader } from '../../components/common/PageHeader';
 import { bladeSchema, BladeFormData } from '../../lib/validators';
 import { createFormConfig } from '../../lib/forms';
-import { getClients } from '../../lib/queriesSupabase';
+import { createBlade, getClients, getMachines } from '../../lib/queriesSupabase';
 import useAuth from '../../hooks/useAuth';
 import { BLADE_STATUS_CODES } from '../../constants/blade';
 import { useNotify } from '../../lib/notify';
@@ -96,8 +96,7 @@ export const BladeEdit: React.FC = () => {
       setSelectedClientId(watchedClientId);
       const loadMachines = async () => {
         try {
-          // TODO: Implement getMachines for Supabase
-          const machinesData: any[] = [];
+          const machinesData = await getMachines(watchedClientId);
           setMachines(machinesData);
         } catch (error) {
           console.error('Error loading machines:', error);

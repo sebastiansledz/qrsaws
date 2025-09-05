@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { useForm } from 'react-hook-form';
-import { listClientsLite, createClientSB, updateClientSB } from '../../lib/queriesSupabase';
+import { listClientsLite, createClientSB, updateClientSB, getMachines, createMachine } from '../../lib/queriesSupabase';
 import useAuth from '../../hooks/useAuth';
 import { Client } from '../../types/client';
 import { clientSchema, machineSchema, ClientFormData, MachineFormData } from '../../lib/validators';
@@ -107,7 +107,14 @@ export const AdminClients: React.FC = () => {
 
   const handleShowMachines = async (client: any) => {
     setSelectedClient(client);
-    await loadMachines(client.id);
+    try {
+      const machinesData = await getMachines(client.id);
+      setMachines(machinesData);
+    } catch (error) {
+      console.error('Error loading machines:', error);
+      notifyError('Nie udało się załadować maszyn');
+      setMachines([]);
+    }
     setShowMachinesDialog(true);
   };
 
@@ -136,16 +143,22 @@ export const AdminClients: React.FC = () => {
   };
 
   const onSubmitMachine = async (data: MachineFormData) => {
+    if (!selectedClient) return;
     try {
-      // TODO: Implement machine creation for Supabase
-      success('Dodawanie maszyn będzie dostępne wkrótce');
+      await createMachine(selectedClient.id, {
+        name: data.name,
+        location: data.location,
+        notes: data.notes,
+      });
+      success(`Maszyna "${data.name}" została dodana pomyślnie`);
       setShowMachineForm(false);
-      if (selectedClient) {
-        await loadMachines(selectedClient.id);
-      }
+      machineForm.reset();
+      // Reload machines list
+      const machinesData = await getMachines(selectedClient.id);
+      setMachines(machinesData);
     } catch (error) {
       console.error('Error saving machine:', error);
-      error('Nie udało się zapisać maszyny');
+      notifyError('Nie udało się zapisać maszyny');
     }
   };
 
