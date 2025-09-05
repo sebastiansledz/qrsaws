@@ -21,6 +21,8 @@ import { BladeDetails as AdminBladeDetails } from './routes/admin/BladeDetails';
 import AdminBladeNew from './routes/admin/BladeNew';
 import { AdminDashboard } from './routes/admin/AdminDashboard';
 import { PrintLabel } from './routes/print/PrintLabel';
+import ClientWZPZ from './routes/app/ClientWZPZ';
+import ClientWZPZDetails from './routes/app/ClientWZPZDetails';
 
 /** NEW **/
 import AdminDocs from './routes/admin/AdminDocs';
@@ -136,6 +138,24 @@ export const router = createBrowserRouter([
             errorElement: (
               <AppErrorBoundary>
                 <div className="p-6">Błąd w liście pił.</div>
+              </AppErrorBoundary>
+            ),
+          },
+          {
+            path: 'wzpz',
+            element: <ClientWZPZ />,
+            errorElement: (
+              <AppErrorBoundary>
+                <div className="p-6">Błąd w dokumentach WZ/PZ.</div>
+              </AppErrorBoundary>
+            ),
+          },
+          {
+            path: 'wzpz/:id',
+            element: <ClientWZPZDetails />,
+            errorElement: (
+              <AppErrorBoundary>
+                <div className="p-6">Błąd w szczegółach dokumentu.</div>
               </AppErrorBoundary>
             ),
           },
