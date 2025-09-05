@@ -16,6 +16,7 @@ import { ScanAction } from './routes/app/ScanAction';
 import { ScanBlade } from './routes/scan/ScanBlade';
 import { BladeDetails } from './routes/blade/BladeDetails';
 import { BladeForm } from './routes/blade/BladeForm';
+import { BladeEdit } from './routes/blade/BladeEdit';
 import { BladeDetails as AdminBladeDetails } from './routes/admin/BladeDetails';
 import AdminBladeNew from './routes/admin/BladeNew';
 import { AdminDashboard } from './routes/admin/AdminDashboard';
@@ -62,7 +63,7 @@ export const router = createBrowserRouter([
           },
           {
             path: 'blade/:id/edit',
-            element: <BladeForm />,
+            element: <BladeEdit />,
             errorElement: (
               <AppErrorBoundary>
                 <div className="p-6">Błąd w edycji piły.</div>
