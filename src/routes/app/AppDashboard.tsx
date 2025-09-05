@@ -18,6 +18,7 @@ type BladeItem = {
   width_mm: number | null;
   thickness_mm: number | null;
   length_mm: number | null;
+  spec: string | null;
 };
 
 export const AppDashboard: React.FC = () => {
@@ -44,7 +45,7 @@ export const AppDashboard: React.FC = () => {
         // Load blades for this client
         const { data: bladesData, error: bErr } = await supabase
           .from('blades')
-          .select('id, blade_code, status, machine, width_mm, thickness_mm, length_mm')
+          .select('id, blade_code, status, machine, width_mm, thickness_mm, length_mm, spec')
           .eq('client_id', profile.client_id)
           .order('created_at', { ascending: false });
         
@@ -54,7 +55,10 @@ export const AppDashboard: React.FC = () => {
         
         // Calculate stats
         const total = bladesArray.length;
-        const attention = bladesArray.filter(b => (b.status ?? 'c0') !== 'c0').length;
+        const needsAttention = bladesArray.filter(b => {
+          const status = b.status ?? 'c0';
+          return ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9', 'c10', 'c11', 'c12', 'c13', 'c14'].includes(status);
+        }).length;
         
         // Get recent movements to estimate pending returns
         const ids = bladesArray.map(b => b.id);
@@ -67,14 +71,20 @@ export const AppDashboard: React.FC = () => {
             .order('created_at', { ascending: false })
             .limit(100);
           
-          // Simple heuristic: count PZ operations as pending returns
-          pendingReturns = (movements ?? []).filter(m => m.op_code === 'PZ').length;
+          // Count blades that have PZ (issued) as last operation
+          const lastOps = new Map<string, string>();
+          (movements ?? []).forEach(m => {
+            if (!lastOps.has(m.blade_id)) {
+              lastOps.set(m.blade_id, m.op_code);
+            }
+          });
+          pendingReturns = Array.from(lastOps.values()).filter(op => op === 'PZ').length;
         }
 
         const tiles: StatTile[] = [
           { title: 'Moje ostrza', value: String(total), icon: Package, color: 'text-primary-600', bgColor: 'bg-primary-50' },
           { title: 'Oczekujące zwroty', value: String(pendingReturns), icon: Clock, color: 'text-warning-600', bgColor: 'bg-warning-50' },
-          { title: 'Przekroczenia', value: String(attention), icon: AlertCircle, color: 'text-error-600', bgColor: 'bg-error-50' },
+          { title: 'Przekroczenia', value: String(needsAttention), icon: AlertCircle, color: 'text-error-600', bgColor: 'bg-error-50' },
         ];
 
         if (!cancelled) {
@@ -91,25 +101,6 @@ export const AppDashboard: React.FC = () => {
     return () => { cancelled = true; };
   }, [profile?.client_id]);
 
-  const getStatusLabel = (status: string | null) => {
-    switch (status) {
-      case 'c0': return 'Bez uwag';
-      case 'c1': return 'Rysuje';
-      case 'c2': return 'Faluje';
-      case 'c13': return 'Do regeneracji';
-      default: return status || 'Bez uwag';
-    }
-  };
-
-  const getStatusColor = (status: string | null) => {
-    switch (status) {
-      case 'c0': return 'text-success-600';
-      case 'c1':
-      case 'c2': return 'text-warning-600';
-      case 'c13': return 'text-primary-600';
-      default: return 'text-gray-600';
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -184,25 +175,28 @@ export const AppDashboard: React.FC = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {blades.slice(0, 3).map((blade) => (
+              {loading ? (
+                <div className="text-center py-8 text-gray-500">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-4"></div>
+                  <p>Ładowanie ostrzy...</p>
+                </div>
+              ) : blades.slice(0, 3).map((blade) => (
                 <div 
                   key={blade.id} 
                   className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer"
                   onClick={() => navigate(`/app/blades/${encodeURIComponent(blade.blade_code)}`)}
                 >
                   <div className="flex-1">
-                    <p className="font-medium">Ostrze piły tarczowej #{blade.blade_code}</p>
+                    <p className="font-medium">Ostrze piły #{blade.blade_code}</p>
                     <p className="text-sm text-gray-600 mt-1">
-                      Model: {blade.width_mm}×{blade.thickness_mm}×{blade.length_mm}mm
+                      Model: {blade.spec || `${blade.width_mm || '—'}×${blade.thickness_mm || '—'}×${blade.length_mm || '—'}mm`}
                     </p>
                     {blade.machine && (
                       <p className="text-sm text-gray-500">Lokalizacja: {blade.machine}</p>
                     )}
                   </div>
                   <div className="text-right">
-                    <span className={`text-sm font-medium ${getStatusColor(blade.status)}`}>
-                      {getStatusLabel(blade.status)}
-                    </span>
+                    <StatusPill status={(blade.status || 'c0') as any} />
                   </div>
                 </div>
               ))}

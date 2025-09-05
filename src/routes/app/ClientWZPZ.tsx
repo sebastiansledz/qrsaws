@@ -24,9 +24,12 @@ type DocRow = {
   human_id: string;
   status: DocStatus;
   created_at: string;
+  created_by: string | null;
+  closed_at: string | null;
+  closed_by: string | null;
 };
 
-const SELECT = 'id,type,client_id,human_id,status,created_at';
+const SELECT = 'id,type,client_id,human_id,status,created_at,created_by,closed_at,closed_by';
 
 export default function ClientWZPZ() {
   const nav = useNavigate();

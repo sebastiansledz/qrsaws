@@ -18,6 +18,7 @@ type Row = {
   thickness_mm: number | null;
   length_mm: number | null;
   machine: string | null;
+  spec: string | null;
   lastMovementAt?: string | null;
 };
 
@@ -37,7 +38,7 @@ export const MyBlades: React.FC = () => {
         if (!profile?.client_id) { setRows([]); return; }
         const { data: blades, error: bErr } = await supabase
           .from('blades')
-          .select('id, blade_code, status, width_mm, thickness_mm, length_mm, machine, created_at')
+          .select('id, blade_code, status, width_mm, thickness_mm, length_mm, machine, spec, created_at')
           .eq('client_id', profile.client_id)
           .order('created_at', { ascending: false });
         if (bErr) throw bErr;
@@ -103,6 +104,12 @@ export const MyBlades: React.FC = () => {
       <Card>
         <CardHeader><CardTitle>Lista pił ({filtered.length})</CardTitle></CardHeader>
         <CardContent>
+          {loading ? (
+            <div className="text-center py-8 text-gray-500">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-4"></div>
+              <p>Ładowanie pił...</p>
+            </div>
+          ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -119,7 +126,7 @@ export const MyBlades: React.FC = () => {
                 <TableRow key={r.id}>
                   <TableCell className="font-medium">{r.blade_code}</TableCell>
                   <TableCell>{r.machine ?? '—'}</TableCell>
-                  <TableCell>{(r.width_mm ?? '—')}×{(r.thickness_mm ?? '—')}×{(r.length_mm ?? '—')}mm</TableCell>
+                  <TableCell>{r.spec || `${r.width_mm ?? '—'}×${r.thickness_mm ?? '—'}×${r.length_mm ?? '—'}mm`}</TableCell>
                   <TableCell><StatusPill status={(r.status ?? 'c0') as any} /></TableCell>
                   <TableCell>{r.lastMovementAt ? new Date(r.lastMovementAt).toLocaleString() : '—'}</TableCell>
                   <TableCell>
@@ -132,6 +139,7 @@ export const MyBlades: React.FC = () => {
               )}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
     </div>

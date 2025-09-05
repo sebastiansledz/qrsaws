@@ -22,6 +22,9 @@ type Doc = {
   human_id: string;
   status: DocStatus;
   created_at: string;
+  created_by: string | null;
+  closed_at: string | null;
+  closed_by: string | null;
   items?: Array<{
     blade_id: string;
     added_at: string;
@@ -32,6 +35,7 @@ type Doc = {
       thickness_mm: number | null;
       length_mm: number | null;
       status: string | null;
+      spec: string | null;
     } | null;
   }>;
 };
@@ -40,8 +44,8 @@ const isUUID = (v: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 
 const SELECT =
-  'id,type,client_id,human_id,status,created_at,' +
-  'items:wzpz_items(blade_id,added_at,blade:blades(id,blade_code,width_mm,thickness_mm,length_mm,status))';
+  'id,type,client_id,human_id,status,created_at,created_by,closed_at,closed_by,' +
+  'items:wzpz_items(blade_id,added_at,blade:blades(id,blade_code,width_mm,thickness_mm,length_mm,status,spec))';
 
 export default function ClientWZPZDetails() {
   const { id: raw = '' } = useParams();
@@ -97,7 +101,7 @@ export default function ClientWZPZDetails() {
   }, [idParam, fetchDoc, error]);
 
   const spec = (b: Doc['items'][number]['blade'] | null | undefined) =>
-    b ? `${b.width_mm ?? '—'}×${b.thickness_mm ?? '—'}×${b.length_mm ?? '—'}mm` : '—';
+    b ? (b.spec || `${b.width_mm ?? '—'}×${b.thickness_mm ?? '—'}×${b.length_mm ?? '—'}mm`) : '—';
 
   if (loading) {
     return <div className="min-h-[40vh] flex items-center justify-center text-gray-500">Ładowanie…</div>;
