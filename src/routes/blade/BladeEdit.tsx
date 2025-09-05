@@ -97,7 +97,6 @@ export const BladeEdit: React.FC = () => {
       const loadMachines = async () => {
         try {
           const machinesData = await getMachines(watchedClientId);
-          setMachines(machinesData);
         } catch (error) {
           console.error('Error loading machines:', error);
           setMachines([]);

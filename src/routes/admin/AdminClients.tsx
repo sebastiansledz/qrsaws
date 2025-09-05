@@ -115,6 +115,13 @@ export const AdminClients: React.FC = () => {
       notifyError('Nie udało się załadować maszyn');
       setMachines([]);
     }
+      const machinesData = await getMachines(client.id);
+      setMachines(machinesData);
+    } catch (error) {
+      console.error('Error loading machines:', error);
+      notifyError('Nie udało się załadować maszyn');
+      setMachines([]);
+    }
     setShowMachinesDialog(true);
   };
 
@@ -144,9 +151,14 @@ export const AdminClients: React.FC = () => {
 
   const onSubmitMachine = async (data: MachineFormData) => {
     if (!selectedClient) return;
+    if (!selectedClient) return;
     try {
       await createMachine(selectedClient.id, {
         name: data.name,
+        location: data.location,
+        notes: data.notes,
+      });
+      success(`Maszyna "${data.name}" została dodana pomyślnie`);
         location: data.location,
         notes: data.notes,
       });
@@ -155,6 +167,7 @@ export const AdminClients: React.FC = () => {
       machineForm.reset();
       // Reload machines list
       const machinesData = await getMachines(selectedClient.id);
+      setMachines(machinesData);
       setMachines(machinesData);
     } catch (error) {
       console.error('Error saving machine:', error);

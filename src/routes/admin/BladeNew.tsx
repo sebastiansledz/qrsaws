@@ -57,7 +57,6 @@ export default function BladeNew() {
       const loadMachines = async () => {
         try {
           const machinesData = await getMachines(watchedClientId);
-          setMachines(machinesData);
           setValue('machineId', '');
         } catch (err) {
           console.error('Error loading machines:', err);
